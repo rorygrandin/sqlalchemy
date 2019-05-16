@@ -3364,6 +3364,35 @@ class MSDialect(default.DefaultDialect):
 
     @reflection.cache
     @_db_plus_owner
+    def get_unique_constraints(
+            self, connection, tablename, dbname, owner, schema, **kw
+    ):
+        TC = ischema.constraints
+        C = ischema.key_constraints.alias("C")
+
+        s = sql.select(
+            [C.c.column_name, TC.c.constraint_type, C.c.constraint_name],
+            sql.and_(
+                TC.c.constraint_name == C.c.constraint_name,
+                TC.c.table_schema == C.c.table_schema,
+                C.c.table_name == tablename,
+                C.c.table_schema == owner,
+            ),
+        )
+        c = connection.execute(s)
+
+        uniques = {}
+        for row in c:
+            if "UNIQUE" in row[TC.c.constraint_type.name]:
+                uniques.setdefault(row[C.c.constraint_name.name], {"column_names": []})
+                uniques[row[TC.c.constraint_name.name]]["column_names"].append(row[C.c.column_name.name])
+        return [
+            {"name": name, "column_names": uc["column_names"]}
+            for name, uc in uniques.items()
+        ]
+
+    @reflection.cache
+    @_db_plus_owner
     def get_foreign_keys(
         self, connection, tablename, dbname, owner, schema, **kw
     ):
