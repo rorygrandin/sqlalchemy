@@ -3335,13 +3335,12 @@ class MSDialect(default.DefaultDialect):
         self, connection, tablename, dbname, owner, schema, **kw
     ):
         pkeys = []
-        C, TC, constraint_data = self._get_constraints(connection, owner, tablename)
+        C, TC, constraint_data = self._get_constraints(connection, owner, tablename, "PRIMARY")
         constraint_name = None
         for row in constraint_data.mappings():
-            if "PRIMARY" in row[TC.c.constraint_type.name]:
-                pkeys.append(row["COLUMN_NAME"])
-                if constraint_name is None:
-                    constraint_name = row[C.c.constraint_name.name]
+            pkeys.append(row["COLUMN_NAME"])
+            if constraint_name is None:
+                constraint_name = row[C.c.constraint_name.name]
         return {"constrained_columns": pkeys, "name": constraint_name}
 
     @reflection.cache
@@ -3349,34 +3348,37 @@ class MSDialect(default.DefaultDialect):
     def get_unique_constraints(
             self, connection, tablename, dbname, owner, schema, **kw
     ):
-        C, TC, constraint_data = self._get_constraints(connection, owner, tablename)
+        C, TC, constraint_data = self._get_constraints(connection, owner, tablename, "UNIQUE")
 
         uniques = {}
-        for row in constraint_data:
-            if "UNIQUE" in row[TC.c.constraint_type.name]:
-                uniques.setdefault(row[C.c.constraint_name.name], {"column_names": []})
-                uniques[row[TC.c.constraint_name.name]]["column_names"].append(row[C.c.column_name.name])
+        for row in constraint_data.mappings():
+            uniques.setdefault(row[C.c.constraint_name.name], {"column_names": []})
+            uniques[row[TC.c.constraint_name.name]]["column_names"].append(row[C.c.column_name.name])
         return [
             {"name": name, "column_names": uc["column_names"]}
             for name, uc in uniques.items()
         ]
 
-    def _get_constraints(self, connection, owner, tablename):
+    def _get_constraints(self, connection, owner, tablename, constraint=None):
         TC = ischema.constraints
         C = ischema.key_constraints.alias("C")
 
-        # Primary key constraints
+        where_clause = [
+            TC.c.constraint_name == C.c.constraint_name,
+            TC.c.table_schema == C.c.table_schema,
+            C.c.table_name == tablename,
+            C.c.table_schema == owner
+        ]
+
+        if constraint:
+            where_clause.append(TC.c.constraint_type.contains(constraint))
+
         s = (
             sql.select(
                 C.c.column_name, TC.c.constraint_type, C.c.constraint_name
             )
             .where(
-                sql.and_(
-                    TC.c.constraint_name == C.c.constraint_name,
-                    TC.c.table_schema == C.c.table_schema,
-                    C.c.table_name == tablename,
-                    C.c.table_schema == owner,
-                ),
+                sql.and_(*where_clause),
             )
             .order_by(TC.c.constraint_name, C.c.ordinal_position)
         )
