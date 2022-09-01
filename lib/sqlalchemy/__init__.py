@@ -131,7 +131,7 @@ from .types import VARBINARY
 from .types import VARCHAR
 
 
-__version__ = "1.4.40+j5.1"
+__version__ = "1.4.40.1" #added the .1 because in sqlalchemy-utils, they take the version string and parse it into ints
 
 
 def __go(lcls):
