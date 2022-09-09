@@ -31,7 +31,7 @@ from .base import Immutable
 from .base import NO_ARG
 from .base import PARSE_AUTOCOMMIT
 from .base import SingletonConstant
-from .coercions import _document_text_coercion
+from .coercions import _document_text_coercion, NONE_CLAUSE_HANDLING, NoneClauseError, NoneClauseWarning
 from .traversals import HasCopyInternals
 from .traversals import MemoizedHasCacheKey
 from .traversals import NO_CACHE
@@ -608,6 +608,7 @@ class ColumnElement(
     roles.ColumnArgumentOrKeyRole,
     roles.StatementOptionRole,
     roles.WhereHavingRole,
+    roles.BoolWhereHavingRole,
     roles.BinaryElementRole,
     roles.OrderByRole,
     roles.ColumnsClauseRole,
@@ -1741,6 +1742,7 @@ class TextClause(
     roles.DDLExpressionRole,
     roles.StatementOptionRole,
     roles.WhereHavingRole,
+    roles.BoolWhereHavingRole,
     roles.OrderByRole,
     roles.FromClauseRole,
     roles.SelectStatementRole,
@@ -2386,7 +2388,7 @@ class ClauseList(
         if kwargs.pop("_flatten_sub_clauses", False):
             clauses = util.flatten_iterator(clauses)
         self._text_converter_role = text_converter_role = kwargs.pop(
-            "_literal_as_text_role", roles.WhereHavingRole
+            "_literal_as_text_role", roles.BoolWhereHavingRole
         )
         if self.group_contents:
             self.clauses = [
@@ -2631,6 +2633,19 @@ class BooleanClauseList(ClauseList, ColumnElement):
             :func:`.or_`
 
         """
+        if NONE_CLAUSE_HANDLING in ("warning", "error") or NONE_CLAUSE_HANDLING.startswith("log:"):
+            if not isinstance(clauses, (list, tuple)):
+                clauses = list(clauses)
+            if type(None) in map(type, clauses):
+                if NONE_CLAUSE_HANDLING == "warning":
+                    warnings.warn("Use of None in and_", NoneClauseWarning)
+                    clauses = [clause for clause in clauses if clause is not None]
+                elif NONE_CLAUSE_HANDLING == "error":
+                    raise NoneClauseError("Use of None in and_")
+                else:
+                    level = getattr(logging, NONE_CLAUSE_HANDLING.replace("log:", "", 1).upper(), logging.ERROR)
+                    logging.log(level, "Use of None in and_: %r", clauses)
+                    clauses = [clause for clause in clauses if clause is not None]
         return cls._construct(
             operators.and_, True_._singleton, False_._singleton, *clauses
         )
@@ -2684,6 +2699,19 @@ class BooleanClauseList(ClauseList, ColumnElement):
             :func:`.and_`
 
         """
+        if NONE_CLAUSE_HANDLING in ("warning", "error") or NONE_CLAUSE_HANDLING.startswith("log:"):
+            if not isinstance(clauses, (list, tuple)):
+                clauses = list(clauses)
+            if type(None) in map(type, clauses):
+                if NONE_CLAUSE_HANDLING == "warning":
+                    warnings.warn("Use of None in or_", NoneClauseWarning)
+                    clauses = [clause for clause in clauses if clause is not None]
+                elif NONE_CLAUSE_HANDLING == "error":
+                    raise NoneClauseError("Use of None in or_")
+                else:
+                    level = getattr(logging, NONE_CLAUSE_HANDLING.replace("log:", "", 1).upper(), logging.ERROR)
+                    logging.log(level, "Use of None in or_: %r", clauses)
+                    clauses = [clause for clause in clauses if clause is not None]
         return cls._construct(
             operators.or_, False_._singleton, True_._singleton, *clauses
         )
@@ -4442,7 +4470,7 @@ class FunctionFilter(ColumnElement):
         """
 
         for criterion in list(criterion):
-            criterion = coercions.expect(roles.WhereHavingRole, criterion)
+            criterion = coercions.expect(roles.BoolWhereHavingRole, criterion)
 
             if self.criterion is not None:
                 self.criterion = self.criterion & criterion

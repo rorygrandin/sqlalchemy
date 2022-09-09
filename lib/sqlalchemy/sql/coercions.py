@@ -20,6 +20,22 @@ from .. import inspection
 from .. import util
 from ..util import collections_abc
 
+import logging
+import warnings
+
+# This can be set to 'log:LEVEL' to log, 'warning' to warn, or 'error' to raise an Exception; anything else will ignore
+NONE_CLAUSE_HANDLING = 'log:WARN'
+
+
+class NoneClauseWarning(RuntimeWarning):
+    """Indicates that somebody is using None as a a boolean clause, which is usually a problem"""
+    pass
+
+
+class NoneClauseError(RuntimeError):
+    """Indicates that somebody is using None as a a boolean clause, which is usually a problem"""
+    pass
+
 
 elements = None
 lambdas = None
@@ -656,6 +672,25 @@ class WhereHavingImpl(_CoerceLiterals, _ColumnCoercions, RoleImpl):
 
     def _text_coercion(self, element, argname=None):
         return _no_text_coercion(element, argname)
+
+
+class BoolWhereHavingImpl(WhereHavingImpl):
+    __slots__ = ()
+
+    _coerce_consts = True
+
+    def _literal_coercion(self, element, argname=None, **kw):
+        if element is None:
+            if NONE_CLAUSE_HANDLING in ("warning", "error") or NONE_CLAUSE_HANDLING.startswith("log:"):
+                if NONE_CLAUSE_HANDLING == "warning":
+                    warnings.warn("Use of None in expression", NoneClauseWarning, 2)
+                elif NONE_CLAUSE_HANDLING == "error":
+                    raise NoneClauseError("Use of None in expression")
+                else:
+                    level = getattr(logging, NONE_CLAUSE_HANDLING.replace("log:", "", 1).upper(), logging.ERROR)
+                    logging.log(level, "Use of None in expression")
+            return elements.TextClause("")
+        return super(BoolWhereHavingImpl, self)._literal_coercion(element, argname=argname, **kw)
 
 
 class StatementOptionImpl(_CoerceLiterals, RoleImpl):

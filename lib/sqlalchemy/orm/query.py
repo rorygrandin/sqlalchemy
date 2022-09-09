@@ -1707,7 +1707,7 @@ class Query(
         """
         for criterion in list(criterion):
             criterion = coercions.expect(
-                roles.WhereHavingRole, criterion, apply_propagate_attrs=self
+                roles.BoolWhereHavingRole, criterion, apply_propagate_attrs=self
             )
 
             # legacy vvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -1922,7 +1922,7 @@ class Query(
 
         self._having_criteria += (
             coercions.expect(
-                roles.WhereHavingRole, criterion, apply_propagate_attrs=self
+                roles.BoolWhereHavingRole, criterion, apply_propagate_attrs=self
             ),
         )
 

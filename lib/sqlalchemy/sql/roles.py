@@ -108,6 +108,9 @@ class OnClauseRole(AllowsLambdaRole, StructuralRole):
 class WhereHavingRole(OnClauseRole):
     _role_name = "SQL expression for WHERE/HAVING role"
 
+class BoolWhereHavingRole(OnClauseRole):
+    _role_name = "SQL expression for WHERE/HAVING role which handles Nones differently"
+
 
 class ExpressionElementRole(SQLRole):
     _role_name = "SQL expression element"
