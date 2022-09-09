@@ -3,7 +3,7 @@
 Configuring a Version Counter
 =============================
 
-The :class:`.Mapper` supports management of a :term:`version id column`, which
+The :class:`_orm.Mapper` supports management of a :term:`version id column`, which
 is a single table column that increments or otherwise updates its value
 each time an ``UPDATE`` to the mapped table occurs.  This value is checked each
 time the ORM emits an ``UPDATE`` or ``DELETE`` against the row to ensure that
@@ -15,7 +15,7 @@ the value held in memory matches the database value.
     record of an object, the feature only applies to the :meth:`.Session.flush`
     process, where the ORM flushes individual in-memory rows to the database.
     It does **not** take effect when performing
-    a multirow UPDATE or DELETE using :meth:`.Query.update` or :meth:`.Query.delete`
+    a multirow UPDATE or DELETE using :meth:`_query.Query.update` or :meth:`_query.Query.delete`
     methods, as these methods only emit an UPDATE or DELETE statement but otherwise
     do not have direct access to the contents of those rows being affected.
 
@@ -45,7 +45,7 @@ transaction).
 
     .. seealso::
 
-        `Repeatable Read Isolation Level <http://www.postgresql.org/docs/9.1/static/transaction-iso.html#XACT-REPEATABLE-READ>`_ - PostgreSQL's implementation of repeatable read, including a description of the error condition.
+        `Repeatable Read Isolation Level <https://www.postgresql.org/docs/current/static/transaction-iso.html#XACT-REPEATABLE-READ>`_ - PostgreSQL's implementation of repeatable read, including a description of the error condition.
 
 Simple Version Counting
 -----------------------
@@ -64,6 +64,10 @@ mapper options::
         __mapper_args__ = {
             "version_id_col": version_id
         }
+
+.. note::  It is **strongly recommended** that the ``version_id`` column
+   be made NOT NULL.  The versioning feature **does not support** a NULL
+   value in the versioning column.
 
 Above, the ``User`` mapping tracks integer versions using the column
 ``version_id``.   When an object of type ``User`` is first flushed, the
@@ -105,7 +109,7 @@ support a native GUID type, but we illustrate here using a simple string)::
         __tablename__ = 'user'
 
         id = Column(Integer, primary_key=True)
-        version_uuid = Column(String(32))
+        version_uuid = Column(String(32), nullable=False)
         name = Column(String(50), nullable=False)
 
         __mapper_args__ = {
@@ -137,7 +141,7 @@ some means of generating new identifiers when a row is subject to an INSERT
 as well as with an UPDATE.   For the UPDATE case, typically an update trigger
 is needed, unless the database in question supports some other native
 version identifier.  The PostgreSQL database in particular supports a system
-column called `xmin <http://www.postgresql.org/docs/9.1/static/ddl-system-columns.html>`_
+column called `xmin <https://www.postgresql.org/docs/current/static/ddl-system-columns.html>`_
 which provides UPDATE versioning.  We can make use
 of the PostgreSQL ``xmin`` column to version our ``User``
 class as follows::
@@ -149,7 +153,7 @@ class as follows::
 
         id = Column(Integer, primary_key=True)
         name = Column(String(50), nullable=False)
-        xmin = Column("xmin", Integer, system=True, server_default=FetchedValue())
+        xmin = Column("xmin", String, system=True, server_default=FetchedValue())
 
         __mapper_args__ = {
             'version_id_col': xmin,
@@ -163,7 +167,9 @@ automatically providing the new value of the version id counter.
 
     In the above scenario, as ``xmin`` is a system column provided by PostgreSQL,
     we use the ``system=True`` argument to mark it as a system-provided
-    column, omitted from the ``CREATE TABLE`` statement.
+    column, omitted from the ``CREATE TABLE`` statement.   The datatype of this
+    column is an internal PostgreSQL type called ``xid`` which acts mostly
+    like a string, so we use the :class:`_types.String` datatype.
 
 
 The ORM typically does not actively fetch the values of database-generated
@@ -199,14 +205,14 @@ missed version counters::
 It is *strongly recommended* that server side version counters only be used
 when absolutely necessary and only on backends that support :term:`RETURNING`,
 e.g. PostgreSQL, Oracle, SQL Server (though SQL Server has
-`major caveats <http://blogs.msdn.com/b/sqlprogrammability/archive/2008/07/11/update-with-output-clause-triggers-and-sqlmoreresults.aspx>`_ when triggers are used), Firebird.
+`major caveats <https://blogs.msdn.com/b/sqlprogrammability/archive/2008/07/11/update-with-output-clause-triggers-and-sqlmoreresults.aspx>`_ when triggers are used), Firebird.
 
 .. versionadded:: 0.9.0
 
     Support for server side version identifier tracking.
 
 Programmatic or Conditional Version Counters
----------------------------------------------
+--------------------------------------------
 
 When ``version_id_generator`` is set to False, we can also programmatically
 (and conditionally) set the version identifier on our object in the same way
@@ -220,7 +226,7 @@ at our choosing::
         __tablename__ = 'user'
 
         id = Column(Integer, primary_key=True)
-        version_uuid = Column(String(32))
+        version_uuid = Column(String(32), nullable=False)
         name = Column(String(50), nullable=False)
 
         __mapper_args__ = {

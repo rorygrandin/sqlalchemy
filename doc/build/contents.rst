@@ -11,10 +11,12 @@ documentation, see :ref:`index_toplevel`.
    :includehidden:
 
    intro
+   tutorial/index
    orm/index
    core/index
    dialects/index
    faq/index
+   errors
    changelog/index
 
 Indices and tables

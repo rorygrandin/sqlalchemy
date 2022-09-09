@@ -6,10 +6,6 @@ Events
 SQLAlchemy includes an event API which publishes a wide variety of hooks into
 the internals of both SQLAlchemy Core and ORM.
 
-.. versionadded:: 0.7
-    The system supersedes the previous system of "extension", "proxy",
-    and "listener" classes.
-
 Event Registration
 ------------------
 
@@ -23,7 +19,7 @@ instructions regarding secondary event targets based on the given target.
 
 The name of an event and the argument signature of a corresponding listener function is derived from
 a class bound specification method, which exists bound to a marker class that's described in the documentation.
-For example, the documentation for :meth:`.PoolEvents.connect` indicates that the event name is ``"connect"``
+For example, the documentation for :meth:`_events.PoolEvents.connect` indicates that the event name is ``"connect"``
 and that a user-defined listener function should receive two positional arguments::
 
     from sqlalchemy.event import listen
@@ -43,11 +39,13 @@ To listen with the :func:`.listens_for` decorator looks like::
     def my_on_connect(dbapi_con, connection_record):
         print("New DBAPI connection:", dbapi_con)
 
+.. _event_named_argument_styles:
+
 Named Argument Styles
 ---------------------
 
 There are some varieties of argument styles which can be accepted by listener
-functions.  Taking the example of :meth:`.PoolEvents.connect`, this function
+functions.  Taking the example of :meth:`_events.PoolEvents.connect`, this function
 is documented as receiving ``dbapi_connection`` and ``connection_record`` arguments.
 We can opt to receive these arguments by name, by establishing a listener function
 that accepts ``**keyword`` arguments, by passing ``named=True`` to either
@@ -88,7 +86,7 @@ The :func:`.listen` function is very flexible regarding targets.  It
 generally accepts classes, instances of those classes, and related
 classes or objects from which the appropriate target can be derived.
 For example, the above mentioned ``"connect"`` event accepts
-:class:`.Engine` classes and objects as well as :class:`.Pool` classes
+:class:`_engine.Engine` classes and objects as well as :class:`_pool.Pool` classes
 and objects::
 
     from sqlalchemy.event import listen
@@ -98,7 +96,7 @@ and objects::
     import psycopg2
 
     def connect():
-        return psycopg2.connect(username='ed', host='127.0.0.1', dbname='test')
+        return psycopg2.connect(user='ed', host='127.0.0.1', dbname='test')
 
     my_pool = QueuePool(connect)
     my_engine = create_engine('postgresql://ed@localhost/test')
@@ -116,8 +114,11 @@ and objects::
     # associate listener with my_engine.pool
     listen(my_engine, 'connect', my_on_connect)
 
+
+.. _event_modifiers:
+
 Modifiers
-----------
+---------
 
 Some listeners allow modifiers to be passed to :func:`.listen`.  These
 modifiers sometimes provide alternate calling signatures for
@@ -129,14 +130,14 @@ this value can be supported::
     def validate_phone(target, value, oldvalue, initiator):
         """Strip non-numeric characters from a phone number"""
 
-        return re.sub(r'(?![0-9])', '', value)
+        return re.sub(r'\D', '', value)
 
     # setup listener on UserContact.phone attribute, instructing
     # it to use the return value
     listen(UserContact.phone, 'set', validate_phone, retval=True)
 
 Event Reference
-----------------
+---------------
 
 Both SQLAlchemy Core and SQLAlchemy ORM feature a wide variety of event hooks:
 

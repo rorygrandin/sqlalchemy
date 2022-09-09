@@ -1,8 +1,37 @@
 .. _ormtutorial_toplevel:
 
-==========================
-Object Relational Tutorial
-==========================
+====================================
+Object Relational Tutorial (1.x API)
+====================================
+
+.. admonition:: About this document
+
+    This tutorial covers the well known SQLAlchemy ORM API
+    that has been in use for many years.  As of SQLAlchemy 1.4, there are two
+    distinct styles of ORM use known as :term:`1.x style` and :term:`2.0
+    style`, the latter of which makes a wide range of changes most prominently
+    around how ORM queries are constructed and executed.
+
+    The plan is that in SQLAlchemy 2.0, the 1.x style of ORM use will be
+    considered legacy and no longer featured in documentation and many
+    aspects of it will be removed.  However, the most central element of
+    :term:`1.x style` ORM use, the :class:`_orm.Query` object, will still
+    remain available for long-term legacy use cases.
+
+    This tutorial is applicable to users who want to learn how SQLAlchemy has
+    been used for many years, particularly those users working with existing
+    applications or related learning material that is in 1.x style.
+
+    For an introduction to SQLAlchemy from the new 1.4/2.0 perspective,
+    see :ref:`unified_tutorial`.
+
+    .. seealso::
+
+        :ref:`change_5159`
+
+        :ref:`migration_20_toplevel`
+
+        :ref:`unified_tutorial`
 
 The SQLAlchemy Object Relational Mapper presents a method of associating
 user-defined Python classes with database tables, and instances of those
@@ -40,11 +69,11 @@ following text represents the expected return value.
 Version Check
 =============
 
-A quick check to verify that we are on at least **version 1.1** of SQLAlchemy::
+A quick check to verify that we are on at least **version 1.4** of SQLAlchemy::
 
     >>> import sqlalchemy
     >>> sqlalchemy.__version__ # doctest:+SKIP
-    1.1.0
+    1.4.0
 
 Connecting
 ==========
@@ -62,8 +91,8 @@ and want less output generated, set it to ``False``. This tutorial will format
 the SQL behind a popup window so it doesn't get in our way; just click the
 "SQL" links to see what's being generated.
 
-The return value of :func:`.create_engine` is an instance of
-:class:`.Engine`, and it represents the core interface to the
+The return value of :func:`_sa.create_engine` is an instance of
+:class:`_engine.Engine`, and it represents the core interface to the
 database, adapted through a :term:`dialect` that handles the details
 of the database and :term:`DBAPI` in use.  In this case the SQLite
 dialect will interpret instructions to the Python built-in ``sqlite3``
@@ -71,19 +100,19 @@ module.
 
 .. sidebar:: Lazy Connecting
 
-    The :class:`.Engine`, when first returned by :func:`.create_engine`,
+    The :class:`_engine.Engine`, when first returned by :func:`_sa.create_engine`,
     has not actually tried to connect to the database yet; that happens
     only the first time it is asked to perform a task against the database.
 
-The first time a method like :meth:`.Engine.execute` or :meth:`.Engine.connect`
-is called, the :class:`.Engine` establishes a real :term:`DBAPI` connection to the
+The first time a method like :meth:`_engine.Engine.execute` or :meth:`_engine.Engine.connect`
+is called, the :class:`_engine.Engine` establishes a real :term:`DBAPI` connection to the
 database, which is then used to emit the SQL.  When using the ORM, we typically
-don't use the :class:`.Engine` directly once created; instead, it's used
+don't use the :class:`_engine.Engine` directly once created; instead, it's used
 behind the scenes by the ORM as we'll see shortly.
 
 .. seealso::
 
-    :ref:`database_urls` - includes examples of :func:`.create_engine`
+    :ref:`database_urls` - includes examples of :func:`_sa.create_engine`
     connecting to several kinds of databases with links to more information.
 
 Declare a Mapping
@@ -104,7 +133,7 @@ application will usually have just one instance of this base in a commonly
 imported module.   We create the base class using the :func:`.declarative_base`
 function, as follows::
 
-    >>> from sqlalchemy.ext.declarative import declarative_base
+    >>> from sqlalchemy.orm import declarative_base
 
     >>> Base = declarative_base()
 
@@ -122,11 +151,11 @@ the table name, and names and datatypes of columns::
     ...     id = Column(Integer, primary_key=True)
     ...     name = Column(String)
     ...     fullname = Column(String)
-    ...     password = Column(String)
+    ...     nickname = Column(String)
     ...
     ...     def __repr__(self):
-    ...        return "<User(name='%s', fullname='%s', password='%s')>" % (
-    ...                             self.name, self.fullname, self.password)
+    ...        return "<User(name='%s', fullname='%s', nickname='%s')>" % (
+    ...                             self.name, self.fullname, self.nickname)
 
 .. sidebar:: Tip
 
@@ -137,7 +166,7 @@ the table name, and names and datatypes of columns::
 
 A class using Declarative at a minimum
 needs a ``__tablename__`` attribute, and at least one
-:class:`.Column` which is part of a primary key [#]_.  SQLAlchemy never makes any
+:class:`_schema.Column` which is part of a primary key [#]_.  SQLAlchemy never makes any
 assumptions by itself about the table to which
 a class refers, including that it has no built-in conventions for names,
 datatypes, or constraints.   But this doesn't mean
@@ -145,7 +174,7 @@ boilerplate is required; instead, you're encouraged to create your
 own automated conventions using helper functions and mixin classes, which
 is described in detail at :ref:`declarative_mixins`.
 
-When our class is constructed, Declarative replaces all the :class:`.Column`
+When our class is constructed, Declarative replaces all the :class:`_schema.Column`
 objects with special Python accessors known as :term:`descriptors`; this is a
 process known as :term:`instrumentation`.   The "instrumented" mapped class
 will provide us with the means to refer to our table in a SQL context as well
@@ -164,44 +193,44 @@ Create a Schema
 
 With our ``User`` class constructed via the Declarative system, we have defined information about
 our table, known as :term:`table metadata`.   The object used by SQLAlchemy to represent
-this information for a specific table is called the :class:`.Table` object, and here Declarative has made
+this information for a specific table is called the :class:`_schema.Table` object, and here Declarative has made
 one for us.  We can see this object by inspecting the ``__table__`` attribute::
 
     >>> User.__table__ # doctest: +NORMALIZE_WHITESPACE
-    Table('users', MetaData(bind=None),
+    Table('users', MetaData(),
                 Column('id', Integer(), table=<users>, primary_key=True, nullable=False),
                 Column('name', String(), table=<users>),
                 Column('fullname', String(), table=<users>),
-                Column('password', String(), table=<users>), schema=None)
+                Column('nickname', String(), table=<users>), schema=None)
 
 .. sidebar:: Classical Mappings
 
     The Declarative system, though highly recommended,
     is not required in order to use SQLAlchemy's ORM.
     Outside of Declarative, any
-    plain Python class can be mapped to any :class:`.Table`
+    plain Python class can be mapped to any :class:`_schema.Table`
     using the :func:`.mapper` function directly; this
     less common usage is described at :ref:`classical_mapping`.
 
 When we declared our class, Declarative used a Python metaclass in order to
 perform additional activities once the class declaration was complete; within
-this phase, it then created a :class:`.Table` object according to our
+this phase, it then created a :class:`_schema.Table` object according to our
 specifications, and associated it with the class by constructing
-a :class:`.Mapper` object.  This object is a behind-the-scenes object we normally
+a :class:`_orm.Mapper` object.  This object is a behind-the-scenes object we normally
 don't need to deal with directly (though it can provide plenty of information
 about our mapping when we need it).
 
-The :class:`.Table` object is a member of a larger collection
-known as :class:`.MetaData`.  When using Declarative,
+The :class:`_schema.Table` object is a member of a larger collection
+known as :class:`_schema.MetaData`.  When using Declarative,
 this object is available using the ``.metadata``
 attribute of our declarative base class.
 
-The :class:`.MetaData`
+The :class:`_schema.MetaData`
 is a :term:`registry` which includes the ability to emit a limited set
 of schema generation commands to the database.  As our SQLite database
-does not actually have a ``users`` table present, we can use :class:`.MetaData`
+does not actually have a ``users`` table present, we can use :class:`_schema.MetaData`
 to issue CREATE TABLE statements to the database for all tables that don't yet exist.
-Below, we call the :meth:`.MetaData.create_all` method, passing in our :class:`.Engine`
+Below, we call the :meth:`_schema.MetaData.create_all` method, passing in our :class:`_engine.Engine`
 as a source of database connectivity.  We will see that special commands are
 first emitted to check for the presence of the ``users`` table, and following that
 the actual ``CREATE TABLE`` statement:
@@ -209,16 +238,15 @@ the actual ``CREATE TABLE`` statement:
 .. sourcecode:: python+sql
 
     >>> Base.metadata.create_all(engine)
-    SELECT ...
-    PRAGMA table_info("users")
-    ()
+    BEGIN...
     CREATE TABLE users (
-        id INTEGER NOT NULL, name VARCHAR,
+        id INTEGER NOT NULL,
+        name VARCHAR,
         fullname VARCHAR,
-        password VARCHAR,
+        nickname VARCHAR,
         PRIMARY KEY (id)
     )
-    ()
+    [...] ()
     COMMIT
 
 .. topic:: Minimal Table Descriptions vs. Full Descriptions
@@ -251,11 +279,11 @@ the actual ``CREATE TABLE`` statement:
             id = Column(Integer, Sequence('user_id_seq'), primary_key=True)
             name = Column(String(50))
             fullname = Column(String(50))
-            password = Column(String(12))
+            nickname = Column(String(50))
 
             def __repr__(self):
-                return "<User(name='%s', fullname='%s', password='%s')>" % (
-                                        self.name, self.fullname, self.password)
+                return "<User(name='%s', fullname='%s', nickname='%s')>" % (
+                                        self.name, self.fullname, self.nickname)
 
     We include this more verbose table definition separately
     to highlight the difference between a minimal construct geared primarily
@@ -268,11 +296,11 @@ Create an Instance of the Mapped Class
 
 With mappings complete, let's now create and inspect a ``User`` object::
 
-    >>> ed_user = User(name='ed', fullname='Ed Jones', password='edspassword')
+    >>> ed_user = User(name='ed', fullname='Ed Jones', nickname='edsnickname')
     >>> ed_user.name
     'ed'
-    >>> ed_user.password
-    'edspassword'
+    >>> ed_user.nickname
+    'edsnickname'
     >>> str(ed_user.id)
     'None'
 
@@ -319,6 +347,10 @@ connect it to the :class:`~sqlalchemy.orm.session.Session` using
 
     >>> Session.configure(bind=engine)  # once engine is available
 
+..  Setup code, not for display - ensure no cascade_backrefs warnings occur
+
+    >>> Session.configure(future=True)
+
 .. sidebar:: Session Lifecycle Patterns
 
     The question of when to make a :class:`.Session` depends a lot on what
@@ -340,9 +372,9 @@ instantiate a :class:`~sqlalchemy.orm.session.Session`::
     >>> session = Session()
 
 The above :class:`~sqlalchemy.orm.session.Session` is associated with our
-SQLite-enabled :class:`.Engine`, but it hasn't opened any connections yet. When it's first
+SQLite-enabled :class:`_engine.Engine`, but it hasn't opened any connections yet. When it's first
 used, it retrieves a connection from a pool of connections maintained by the
-:class:`.Engine`, and holds onto it until we commit all changes and/or close the
+:class:`_engine.Engine`, and holds onto it until we commit all changes and/or close the
 session object.
 
 
@@ -351,7 +383,7 @@ Adding and Updating Objects
 
 To persist our ``User`` object, we :meth:`~.Session.add` it to our :class:`~sqlalchemy.orm.session.Session`::
 
-    >>> ed_user = User(name='ed', fullname='Ed Jones', password='edspassword')
+    >>> ed_user = User(name='ed', fullname='Ed Jones', nickname='edsnickname')
     >>> session.add(ed_user)
 
 At this point, we say that the instance is **pending**; no SQL has yet been issued
@@ -371,18 +403,18 @@ added:
 
     {sql}>>> our_user = session.query(User).filter_by(name='ed').first() # doctest:+NORMALIZE_WHITESPACE
     BEGIN (implicit)
-    INSERT INTO users (name, fullname, password) VALUES (?, ?, ?)
-    ('ed', 'Ed Jones', 'edspassword')
+    INSERT INTO users (name, fullname, nickname) VALUES (?, ?, ?)
+    [...] ('ed', 'Ed Jones', 'edsnickname')
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password
+            users.nickname AS users_nickname
     FROM users
     WHERE users.name = ?
      LIMIT ? OFFSET ?
-    ('ed', 1, 0)
+    [...] ('ed', 1, 0)
     {stop}>>> our_user
-    <User(name='ed', fullname='Ed Jones', password='edspassword')>
+    <User(name='ed', fullname='Ed Jones', nickname='edsnickname')>
 
 In fact, the :class:`~sqlalchemy.orm.session.Session` has identified that the
 row returned is the **same** row as one already represented within its
@@ -409,15 +441,15 @@ We can add more ``User`` objects at once using
 .. sourcecode:: python+sql
 
     >>> session.add_all([
-    ...     User(name='wendy', fullname='Wendy Williams', password='foobar'),
-    ...     User(name='mary', fullname='Mary Contrary', password='xxg527'),
-    ...     User(name='fred', fullname='Fred Flinstone', password='blah')])
+    ...     User(name='wendy', fullname='Wendy Williams', nickname='windy'),
+    ...     User(name='mary', fullname='Mary Contrary', nickname='mary'),
+    ...     User(name='fred', fullname='Fred Flintstone', nickname='freddy')])
 
-Also, we've decided the password for Ed isn't too secure, so lets change it:
+Also, we've decided Ed's nickname isn't that great, so lets change it:
 
 .. sourcecode:: python+sql
 
-    >>> ed_user.password = 'f8s7ccs'
+    >>> ed_user.nickname = 'eddie'
 
 The :class:`~sqlalchemy.orm.session.Session` is paying attention. It knows,
 for example, that ``Ed Jones`` has been modified:
@@ -425,38 +457,38 @@ for example, that ``Ed Jones`` has been modified:
 .. sourcecode:: python+sql
 
     >>> session.dirty
-    IdentitySet([<User(name='ed', fullname='Ed Jones', password='f8s7ccs')>])
+    IdentitySet([<User(name='ed', fullname='Ed Jones', nickname='eddie')>])
 
 and that three new ``User`` objects are pending:
 
 .. sourcecode:: python+sql
 
     >>> session.new  # doctest: +SKIP
-    IdentitySet([<User(name='wendy', fullname='Wendy Williams', password='foobar')>,
-    <User(name='mary', fullname='Mary Contrary', password='xxg527')>,
-    <User(name='fred', fullname='Fred Flinstone', password='blah')>])
+    IdentitySet([<User(name='wendy', fullname='Wendy Williams', nickname='windy')>,
+    <User(name='mary', fullname='Mary Contrary', nickname='mary')>,
+    <User(name='fred', fullname='Fred Flintstone', nickname='freddy')>])
 
 We tell the :class:`~sqlalchemy.orm.session.Session` that we'd like to issue
 all remaining changes to the database and commit the transaction, which has
 been in progress throughout. We do this via :meth:`~.Session.commit`.  The
 :class:`~sqlalchemy.orm.session.Session` emits the ``UPDATE`` statement
-for the password change on "ed", as well as ``INSERT`` statements for the
+for the nickname change on "ed", as well as ``INSERT`` statements for the
 three new ``User`` objects we've added:
 
 .. sourcecode:: python+sql
 
     {sql}>>> session.commit()
-    UPDATE users SET password=? WHERE users.id = ?
-    ('f8s7ccs', 1)
-    INSERT INTO users (name, fullname, password) VALUES (?, ?, ?)
-    ('wendy', 'Wendy Williams', 'foobar')
-    INSERT INTO users (name, fullname, password) VALUES (?, ?, ?)
-    ('mary', 'Mary Contrary', 'xxg527')
-    INSERT INTO users (name, fullname, password) VALUES (?, ?, ?)
-    ('fred', 'Fred Flinstone', 'blah')
+    UPDATE users SET nickname=? WHERE users.id = ?
+    [...] ('eddie', 1)
+    INSERT INTO users (name, fullname, nickname) VALUES (?, ?, ?)
+    [...] ('wendy', 'Wendy Williams', 'windy')
+    INSERT INTO users (name, fullname, nickname) VALUES (?, ?, ?)
+    [...] ('mary', 'Mary Contrary', 'mary')
+    INSERT INTO users (name, fullname, nickname) VALUES (?, ?, ?)
+    [...] ('fred', 'Fred Flintstone', 'freddy')
     COMMIT
 
-:meth:`~.Session.commit` flushes whatever remaining changes remain to the
+:meth:`~.Session.commit` flushes the remaining changes to the
 database, and commits the transaction. The connection resources referenced by
 the session are now returned to the connection pool. Subsequent operations
 with this session will occur in a **new** transaction, which will again
@@ -471,10 +503,10 @@ If we look at Ed's ``id`` attribute, which earlier was ``None``, it now has a va
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password
+            users.nickname AS users_nickname
     FROM users
     WHERE users.id = ?
-    (1,)
+    [...] (1,)
     {stop}1
 
 After the :class:`~sqlalchemy.orm.session.Session` inserts new rows in the
@@ -490,7 +522,7 @@ The level of reloading is configurable as is described in :doc:`/orm/session`.
 
    As our ``User`` object moved from being outside the :class:`.Session`, to
    inside the :class:`.Session` without a primary key, to actually being
-   inserted, it moved between three out of four
+   inserted, it moved between three out of five
    available "object states" - **transient**, **pending**, and **persistent**.
    Being aware of these states and what they mean is always a good idea -
    be sure to read :ref:`session_object_states` for a quick overview.
@@ -509,7 +541,7 @@ and we'll add another erroneous user, ``fake_user``:
 
 .. sourcecode:: python+sql
 
-    >>> fake_user = User(name='fakeuser', fullname='Invalid', password='12345')
+    >>> fake_user = User(name='fakeuser', fullname='Invalid', nickname='12345')
     >>> session.add(fake_user)
 
 Querying the session, we can see that they're flushed into the current transaction:
@@ -518,17 +550,17 @@ Querying the session, we can see that they're flushed into the current transacti
 
     {sql}>>> session.query(User).filter(User.name.in_(['Edwardo', 'fakeuser'])).all()
     UPDATE users SET name=? WHERE users.id = ?
-    ('Edwardo', 1)
-    INSERT INTO users (name, fullname, password) VALUES (?, ?, ?)
-    ('fakeuser', 'Invalid', '12345')
+    [...] ('Edwardo', 1)
+    INSERT INTO users (name, fullname, nickname) VALUES (?, ?, ?)
+    [...] ('fakeuser', 'Invalid', '12345')
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password
+            users.nickname AS users_nickname
     FROM users
     WHERE users.name IN (?, ?)
-    ('Edwardo', 'fakeuser')
-    {stop}[<User(name='Edwardo', fullname='Ed Jones', password='f8s7ccs')>, <User(name='fakeuser', fullname='Invalid', password='12345')>]
+    [...] ('Edwardo', 'fakeuser')
+    {stop}[<User(name='Edwardo', fullname='Ed Jones', nickname='eddie')>, <User(name='fakeuser', fullname='Invalid', nickname='12345')>]
 
 Rolling back, we can see that ``ed_user``'s name is back to ``ed``, and
 ``fake_user`` has been kicked out of the session:
@@ -544,10 +576,10 @@ Rolling back, we can see that ``ed_user``'s name is back to ``ed``, and
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password
+            users.nickname AS users_nickname
     FROM users
     WHERE users.id = ?
-    (1,)
+    [...] (1,)
     {stop}u'ed'
     >>> fake_user in session
     False
@@ -560,11 +592,11 @@ issuing a SELECT illustrates the changes made to the database:
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password
+            users.nickname AS users_nickname
     FROM users
     WHERE users.name IN (?, ?)
-    ('ed', 'fakeuser')
-    {stop}[<User(name='ed', fullname='Ed Jones', password='f8s7ccs')>]
+    [...] ('ed', 'fakeuser')
+    {stop}[<User(name='ed', fullname='Ed Jones', nickname='eddie')>]
 
 .. _ormtutorial_querying:
 
@@ -587,13 +619,13 @@ returned:
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password
+            users.nickname AS users_nickname
     FROM users ORDER BY users.id
-    ()
+    [...] ()
     {stop}ed Ed Jones
     wendy Wendy Williams
     mary Mary Contrary
-    fred Fred Flinstone
+    fred Fred Flintstone
 
 The :class:`~sqlalchemy.orm.query.Query` also accepts ORM-instrumented
 descriptors as arguments. Any time multiple class entities or column-based
@@ -608,14 +640,14 @@ is expressed as tuples:
     SELECT users.name AS users_name,
             users.fullname AS users_fullname
     FROM users
-    ()
+    [...] ()
     {stop}ed Ed Jones
     wendy Wendy Williams
     mary Mary Contrary
-    fred Fred Flinstone
+    fred Fred Flintstone
 
 The tuples returned by :class:`~sqlalchemy.orm.query.Query` are *named*
-tuples, supplied by the :class:`.KeyedTuple` class, and can be treated much like an
+tuples, supplied by the :class:`.Row` class, and can be treated much like an
 ordinary Python object. The names are
 the same as the attribute's name for an attribute, and the class name for a
 class:
@@ -627,17 +659,18 @@ class:
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password
+            users.nickname AS users_nickname,
+            users.name AS users_name__1
     FROM users
-    ()
-    {stop}<User(name='ed', fullname='Ed Jones', password='f8s7ccs')> ed
-    <User(name='wendy', fullname='Wendy Williams', password='foobar')> wendy
-    <User(name='mary', fullname='Mary Contrary', password='xxg527')> mary
-    <User(name='fred', fullname='Fred Flinstone', password='blah')> fred
+    [...] ()
+    {stop}<User(name='ed', fullname='Ed Jones', nickname='eddie')> ed
+    <User(name='wendy', fullname='Wendy Williams', nickname='windy')> wendy
+    <User(name='mary', fullname='Mary Contrary', nickname='mary')> mary
+    <User(name='fred', fullname='Fred Flintstone', nickname='freddy')> fred
 
 You can control the names of individual column expressions using the
-:meth:`~.ColumnElement.label` construct, which is available from
-any :class:`.ColumnElement`-derived object, as well as any class attribute which
+:meth:`_expression.ColumnElement.label` construct, which is available from
+any :class:`_expression.ColumnElement`-derived object, as well as any class attribute which
 is mapped to one (such as ``User.name``):
 
 .. sourcecode:: python+sql
@@ -646,7 +679,7 @@ is mapped to one (such as ``User.name``):
     ...    print(row.name_label)
     SELECT users.name AS name_label
     FROM users
-    (){stop}
+    [...] (){stop}
     ed
     wendy
     mary
@@ -666,13 +699,14 @@ entities are present in the call to :meth:`~.Session.query`, can be controlled u
     SELECT user_alias.id AS user_alias_id,
             user_alias.name AS user_alias_name,
             user_alias.fullname AS user_alias_fullname,
-            user_alias.password AS user_alias_password
+            user_alias.nickname AS user_alias_nickname,
+            user_alias.name AS user_alias_name__1
     FROM users AS user_alias
-    (){stop}
-    <User(name='ed', fullname='Ed Jones', password='f8s7ccs')>
-    <User(name='wendy', fullname='Wendy Williams', password='foobar')>
-    <User(name='mary', fullname='Mary Contrary', password='xxg527')>
-    <User(name='fred', fullname='Fred Flinstone', password='blah')>
+    [...] (){stop}
+    <User(name='ed', fullname='Ed Jones', nickname='eddie')>
+    <User(name='wendy', fullname='Wendy Williams', nickname='windy')>
+    <User(name='mary', fullname='Mary Contrary', nickname='mary')>
+    <User(name='fred', fullname='Fred Flintstone', nickname='freddy')>
 
 Basic operations with :class:`~sqlalchemy.orm.query.Query` include issuing
 LIMIT and OFFSET, most conveniently using Python array slices and typically in
@@ -685,12 +719,12 @@ conjunction with ORDER BY:
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password
+            users.nickname AS users_nickname
     FROM users ORDER BY users.id
     LIMIT ? OFFSET ?
-    (2, 1){stop}
-    <User(name='wendy', fullname='Wendy Williams', password='foobar')>
-    <User(name='mary', fullname='Mary Contrary', password='xxg527')>
+    [...] (2, 1){stop}
+    <User(name='wendy', fullname='Wendy Williams', nickname='windy')>
+    <User(name='mary', fullname='Mary Contrary', nickname='mary')>
 
 and filtering results, which is accomplished either with
 :func:`~sqlalchemy.orm.query.Query.filter_by`, which uses keyword arguments:
@@ -702,7 +736,7 @@ and filtering results, which is accomplished either with
     ...    print(name)
     SELECT users.name AS users_name FROM users
     WHERE users.fullname = ?
-    ('Ed Jones',)
+    [...] ('Ed Jones',)
     {stop}ed
 
 ...or :func:`~sqlalchemy.orm.query.Query.filter`, which uses more flexible SQL
@@ -716,7 +750,7 @@ operators with the class-level attributes on your mapped class:
     ...    print(name)
     SELECT users.name AS users_name FROM users
     WHERE users.fullname = ?
-    ('Ed Jones',)
+    [...] ('Ed Jones',)
     {stop}ed
 
 The :class:`~sqlalchemy.orm.query.Query` object is fully **generative**, meaning
@@ -735,11 +769,11 @@ users named "ed" with a full name of "Ed Jones", you can call
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password
+            users.nickname AS users_nickname
     FROM users
     WHERE users.name = ? AND users.fullname = ?
-    ('ed', 'Ed Jones')
-    {stop}<User(name='ed', fullname='Ed Jones', password='f8s7ccs')>
+    [...] ('ed', 'Ed Jones')
+    {stop}<User(name='ed', fullname='Ed Jones', nickname='eddie')>
 
 Common Filter Operators
 -----------------------
@@ -781,7 +815,14 @@ Here's a rundown of some of the most common operators used in
         session.query(User.name).filter(User.name.like('%ed%'))
     ))
 
-* :meth:`NOT IN <.ColumnOperators.notin_>`::
+    # use tuple_() for composite (multi-column) queries
+    from sqlalchemy import tuple_
+    query.filter(
+        tuple_(User.name, User.nickname).\
+        in_([('ed', 'edsnickname'), ('wendy', 'windy')])
+    )
+
+* :meth:`NOT IN <.ColumnOperators.not_in>`::
 
     query.filter(~User.name.in_(['ed', 'wendy', 'jack']))
 
@@ -792,12 +833,12 @@ Here's a rundown of some of the most common operators used in
     # alternatively, if pep8/linters are a concern
     query.filter(User.name.is_(None))
 
-* :meth:`IS NOT NULL <.ColumnOperators.isnot>`::
+* :meth:`IS NOT NULL <.ColumnOperators.is_not>`::
 
     query.filter(User.name != None)
 
     # alternatively, if pep8/linters are a concern
-    query.filter(User.name.isnot(None))
+    query.filter(User.name.is_not(None))
 
 * :func:`AND <.sql.expression.and_>`::
 
@@ -832,14 +873,16 @@ Here's a rundown of some of the most common operators used in
     or ``CONTAINS`` function; its behavior will vary by backend and is not
     available on some backends such as SQLite.
 
+.. _orm_tutorial_query_returning:
+
 Returning Lists and Scalars
 ---------------------------
 
-A number of methods on :class:`.Query`
+A number of methods on :class:`_query.Query`
 immediately issue SQL and return a value containing loaded
 database results.  Here's a brief tour:
 
-* :meth:`~.Query.all()` returns a list:
+* :meth:`_query.Query.all` returns a list:
 
   .. sourcecode:: python+sql
 
@@ -848,14 +891,29 @@ database results.  Here's a brief tour:
       SELECT users.id AS users_id,
               users.name AS users_name,
               users.fullname AS users_fullname,
-              users.password AS users_password
+              users.nickname AS users_nickname
       FROM users
       WHERE users.name LIKE ? ORDER BY users.id
-      ('%ed',)
-      {stop}[<User(name='ed', fullname='Ed Jones', password='f8s7ccs')>,
-            <User(name='fred', fullname='Fred Flinstone', password='blah')>]
+      [...] ('%ed',)
+      {stop}[<User(name='ed', fullname='Ed Jones', nickname='eddie')>,
+            <User(name='fred', fullname='Fred Flintstone', nickname='freddy')>]
 
-* :meth:`~.Query.first()` applies a limit of one and returns
+  .. warning::
+
+        When the :class:`_query.Query` object returns lists of ORM-mapped objects
+        such as the ``User`` object above, the entries are **deduplicated**
+        based on primary key, as the results are interpreted from the SQL
+        result set.  That is, if SQL query returns a row with ``id=7`` twice,
+        you would only get a single ``User(id=7)`` object back in the result
+        list.  This does not apply to the case when individual columns are
+        queried.
+
+        .. seealso::
+
+            :ref:`faq_query_deduplicating`
+
+
+* :meth:`_query.Query.first` applies a limit of one and returns
   the first result as a scalar:
 
   .. sourcecode:: python+sql
@@ -864,14 +922,14 @@ database results.  Here's a brief tour:
       SELECT users.id AS users_id,
               users.name AS users_name,
               users.fullname AS users_fullname,
-              users.password AS users_password
+              users.nickname AS users_nickname
       FROM users
       WHERE users.name LIKE ? ORDER BY users.id
        LIMIT ? OFFSET ?
-      ('%ed', 1, 0)
-      {stop}<User(name='ed', fullname='Ed Jones', password='f8s7ccs')>
+      [...] ('%ed', 1, 0)
+      {stop}<User(name='ed', fullname='Ed Jones', nickname='eddie')>
 
-* :meth:`~.Query.one()` fully fetches all rows, and if not
+* :meth:`_query.Query.one` fully fetches all rows, and if not
   exactly one object identity or composite row is present in the result, raises
   an error.  With multiple rows found:
 
@@ -891,17 +949,17 @@ database results.  Here's a brief tour:
       ...
       NoResultFound: No row was found for one()
 
-  The :meth:`~.Query.one` method is great for systems that expect to handle
+  The :meth:`_query.Query.one` method is great for systems that expect to handle
   "no items found" versus "multiple items found" differently; such as a RESTful
   web service, which may want to raise a "404 not found" when no results are found,
   but raise an application error when multiple results are found.
 
-* :meth:`~.Query.one_or_none` is like :meth:`~.Query.one`, except that if no
+* :meth:`_query.Query.one_or_none` is like :meth:`_query.Query.one`, except that if no
   results are found, it doesn't raise an error; it just returns ``None``. Like
-  :meth:`~.Query.one`, however, it does raise an error if multiple results are
+  :meth:`_query.Query.one`, however, it does raise an error if multiple results are
   found.
 
-* :meth:`~.Query.scalar` invokes the :meth:`~.Query.one` method, and upon
+* :meth:`_query.Query.scalar` invokes the :meth:`_query.Query.one` method, and upon
   success returns the first column of the row:
 
   .. sourcecode:: python+sql
@@ -912,7 +970,7 @@ database results.  Here's a brief tour:
       SELECT users.id AS users_id
       FROM users
       WHERE users.name = ? ORDER BY users.id
-      ('ed',)
+      [...] ('ed',)
       {stop}1
 
 .. _orm_tutorial_literal_sql:
@@ -922,10 +980,10 @@ Using Textual SQL
 
 Literal strings can be used flexibly with
 :class:`~sqlalchemy.orm.query.Query`, by specifying their use
-with the :func:`~.expression.text` construct, which is accepted
+with the :func:`_expression.text` construct, which is accepted
 by most applicable methods.  For example,
-:meth:`~sqlalchemy.orm.query.Query.filter()` and
-:meth:`~sqlalchemy.orm.query.Query.order_by()`:
+:meth:`_query.Query.filter` and
+:meth:`_query.Query.order_by`:
 
 .. sourcecode:: python+sql
 
@@ -937,17 +995,17 @@ by most applicable methods.  For example,
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password
+            users.nickname AS users_nickname
     FROM users
     WHERE id<224 ORDER BY id
-    ()
+    [...] ()
     {stop}ed
     wendy
     mary
     fred
 
 Bind parameters can be specified with string-based SQL, using a colon. To
-specify the values, use the :meth:`~sqlalchemy.orm.query.Query.params()`
+specify the values, use the :meth:`_query.Query.params`
 method:
 
 .. sourcecode:: python+sql
@@ -957,56 +1015,41 @@ method:
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password
+            users.nickname AS users_nickname
     FROM users
     WHERE id<? and name=? ORDER BY users.id
-    (224, 'fred')
-    {stop}<User(name='fred', fullname='Fred Flinstone', password='blah')>
+    [...] (224, 'fred')
+    {stop}<User(name='fred', fullname='Fred Flintstone', nickname='freddy')>
 
-To use an entirely string-based statement, a :func:`.text` construct
+To use an entirely string-based statement, a :func:`_expression.text` construct
 representing a complete statement can be passed to
-:meth:`~sqlalchemy.orm.query.Query.from_statement()`.  Without additional
-specifiers, the columns in the string SQL are matched to the model columns
-based on name, such as below where we use just an asterisk to represent
-loading all columns:
+:meth:`_query.Query.from_statement`.   Without further
+specification, the ORM will match columns in the ORM mapping to the result
+returned by the SQL statement based on column name:
 
 .. sourcecode:: python+sql
 
     {sql}>>> session.query(User).from_statement(
-    ...                     text("SELECT * FROM users where name=:name")).\
-    ...                     params(name='ed').all()
+    ...  text("SELECT * FROM users where name=:name")).params(name='ed').all()
     SELECT * FROM users where name=?
-    ('ed',)
-    {stop}[<User(name='ed', fullname='Ed Jones', password='f8s7ccs')>]
+    [...] ('ed',)
+    {stop}[<User(name='ed', fullname='Ed Jones', nickname='eddie')>]
 
-Matching columns on name works for simple cases but can become unwieldy when
-dealing with complex statements that contain duplicate column names or when
-using anonymized ORM constructs that don't easily match to specific names.
-Additionally, there is typing behavior present in our mapped columns that
-we might find necessary when handling result rows.  For these cases,
-the :func:`~.expression.text` construct allows us to link its textual SQL
-to Core or ORM-mapped column expressions positionally; we can achieve this
-by passing column expressions as positional arguments to the
-:meth:`.TextClause.columns` method:
+For better targeting of mapped columns to a textual SELECT, as well as  to
+match on a specific subset of columns in arbitrary order, individual mapped
+columns are passed in the desired order to :meth:`_expression.TextClause.columns`:
 
 .. sourcecode:: python+sql
 
-    >>> stmt = text("SELECT name, id, fullname, password "
+    >>> stmt = text("SELECT name, id, fullname, nickname "
     ...             "FROM users where name=:name")
-    >>> stmt = stmt.columns(User.name, User.id, User.fullname, User.password)
+    >>> stmt = stmt.columns(User.name, User.id, User.fullname, User.nickname)
     {sql}>>> session.query(User).from_statement(stmt).params(name='ed').all()
-    SELECT name, id, fullname, password FROM users where name=?
-    ('ed',)
-    {stop}[<User(name='ed', fullname='Ed Jones', password='f8s7ccs')>]
+    SELECT name, id, fullname, nickname FROM users where name=?
+    [...] ('ed',)
+    {stop}[<User(name='ed', fullname='Ed Jones', nickname='eddie')>]
 
-.. versionadded:: 1.1
-
-    The :meth:`.TextClause.columns` method now accepts column expressions
-    which will be matched positionally to a plain text SQL result set,
-    eliminating the need for column names to match or even be unique in the
-    SQL statement.
-
-When selecting from a :func:`~.expression.text` construct, the :class:`.Query`
+When selecting from a :func:`_expression.text` construct, the :class:`_query.Query`
 may still specify what columns and entities are to be returned; instead of
 ``query(User)`` we can also ask for the columns individually, as in
 any other case:
@@ -1018,19 +1061,19 @@ any other case:
     {sql}>>> session.query(User.id, User.name).\
     ...          from_statement(stmt).params(name='ed').all()
     SELECT name, id FROM users where name=?
-    ('ed',)
+    [...] ('ed',)
     {stop}[(1, u'ed')]
 
 .. seealso::
 
-    :ref:`sqlexpression_text` - The :func:`.text` construct explained
+    :ref:`sqlexpression_text` - The :func:`_expression.text` construct explained
     from the perspective of Core-only queries.
 
 Counting
 --------
 
 :class:`~sqlalchemy.orm.query.Query` includes a convenience method for
-counting called :meth:`~sqlalchemy.orm.query.Query.count()`:
+counting called :meth:`_query.Query.count`:
 
 .. sourcecode:: python+sql
 
@@ -1039,15 +1082,15 @@ counting called :meth:`~sqlalchemy.orm.query.Query.count()`:
     FROM (SELECT users.id AS users_id,
                     users.name AS users_name,
                     users.fullname AS users_fullname,
-                    users.password AS users_password
+                    users.nickname AS users_nickname
     FROM users
     WHERE users.name LIKE ?) AS anon_1
-    ('%ed',)
+    [...] ('%ed',)
     {stop}2
 
 .. sidebar:: Counting on ``count()``
 
-    :meth:`.Query.count` used to be a very complicated method
+    :meth:`_query.Query.count` used to be a very complicated method
     when it would try to guess whether or not a subquery was needed
     around the
     existing query, and in some exotic cases it wouldn't do the right thing.
@@ -1055,7 +1098,7 @@ counting called :meth:`~sqlalchemy.orm.query.Query.count()`:
     and always returns the right answer.  Use ``func.count()`` if a
     particular statement absolutely cannot tolerate the subquery being present.
 
-The :meth:`~.Query.count()` method is used to determine
+The :meth:`_query.Query.count` method is used to determine
 how many rows the SQL statement would return.   Looking
 at the generated SQL above, SQLAlchemy always places whatever it is we are
 querying into a subquery, then counts the rows from that.   In some cases
@@ -1075,7 +1118,7 @@ use it to return the count of each distinct user name:
     {sql}>>> session.query(func.count(User.name), User.name).group_by(User.name).all()
     SELECT count(users.name) AS count_1, users.name AS users_name
     FROM users GROUP BY users.name
-    ()
+    [...] ()
     {stop}[(1, u'ed'), (1, u'fred'), (1, u'mary'), (1, u'wendy')]
 
 To achieve our simple ``SELECT count(*) FROM table``, we can apply it as:
@@ -1085,10 +1128,10 @@ To achieve our simple ``SELECT count(*) FROM table``, we can apply it as:
     {sql}>>> session.query(func.count('*')).select_from(User).scalar()
     SELECT count(?) AS count_1
     FROM users
-    ('*',)
+    [...] ('*',)
     {stop}4
 
-The usage of :meth:`~.Query.select_from` can be removed if we express the count in terms
+The usage of :meth:`_query.Query.select_from` can be removed if we express the count in terms
 of the ``User`` primary key directly:
 
 .. sourcecode:: python+sql
@@ -1096,7 +1139,7 @@ of the ``User`` primary key directly:
     {sql}>>> session.query(func.count(User.id)).scalar()
     SELECT count(users.id) AS count_1
     FROM users
-    ()
+    [...] ()
     {stop}4
 
 .. _orm_tutorial_relationship:
@@ -1111,7 +1154,7 @@ implies a basic one to many association from the ``users`` to a new
 table which stores email addresses, which we will call ``addresses``. Using
 declarative, we define this table along with its mapped class, ``Address``:
 
-.. sourcecode:: python+sql
+.. sourcecode:: python
 
     >>> from sqlalchemy import ForeignKey
     >>> from sqlalchemy.orm import relationship
@@ -1130,26 +1173,26 @@ declarative, we define this table along with its mapped class, ``Address``:
     >>> User.addresses = relationship(
     ...     "Address", order_by=Address.id, back_populates="user")
 
-The above class introduces the :class:`.ForeignKey` construct, which is a
-directive applied to :class:`.Column` that indicates that values in this
+The above class introduces the :class:`_schema.ForeignKey` construct, which is a
+directive applied to :class:`_schema.Column` that indicates that values in this
 column should be :term:`constrained` to be values present in the named remote
 column. This is a core feature of relational databases, and is the "glue" that
 transforms an otherwise unconnected collection of tables to have rich
-overlapping relationships. The :class:`.ForeignKey` above expresses that
+overlapping relationships. The :class:`_schema.ForeignKey` above expresses that
 values in the ``addresses.user_id`` column should be constrained to
 those values in the ``users.id`` column, i.e. its primary key.
 
-A second directive, known as :func:`.relationship`,
+A second directive, known as :func:`_orm.relationship`,
 tells the ORM that the ``Address`` class itself should be linked
 to the ``User`` class, using the attribute ``Address.user``.
-:func:`.relationship` uses the foreign key
+:func:`_orm.relationship` uses the foreign key
 relationships between the two tables to determine the nature of
 this linkage, determining that ``Address.user`` will be :term:`many to one`.
-An additional :func:`.relationship` directive is placed on the
+An additional :func:`_orm.relationship` directive is placed on the
 ``User`` mapped class under the attribute ``User.addresses``.  In both
-:func:`.relationship` directives, the parameter
-:paramref:`.relationship.back_populates` is assigned to refer to the
-complementary attribute names; by doing so, each :func:`.relationship`
+:func:`_orm.relationship` directives, the parameter
+:paramref:`_orm.relationship.back_populates` is assigned to refer to the
+complementary attribute names; by doing so, each :func:`_orm.relationship`
 can make intelligent decision about the same relationship as expressed
 in reverse;  on one side, ``Address.user`` refers to a ``User`` instance,
 and on the other side, ``User.addresses`` refers to a list of
@@ -1157,16 +1200,16 @@ and on the other side, ``User.addresses`` refers to a list of
 
 .. note::
 
-    The :paramref:`.relationship.back_populates` parameter is a newer
+    The :paramref:`_orm.relationship.back_populates` parameter is a newer
     version of a very common SQLAlchemy feature called
-    :paramref:`.relationship.backref`.  The :paramref:`.relationship.backref`
+    :paramref:`_orm.relationship.backref`.  The :paramref:`_orm.relationship.backref`
     parameter hasn't gone anywhere and will always remain available!
-    The :paramref:`.relationship.back_populates` is the same thing, except
+    The :paramref:`_orm.relationship.back_populates` is the same thing, except
     a little more verbose and easier to manipulate.  For an overview
     of the entire topic, see the section :ref:`relationships_backref`.
 
 The reverse side of a many-to-one relationship is always :term:`one to many`.
-A full catalog of available :func:`.relationship` configurations
+A full catalog of available :func:`_orm.relationship` configurations
 is at :ref:`relationship_patterns`.
 
 The two complementing relationships ``Address.user`` and ``User.addresses``
@@ -1174,7 +1217,7 @@ are referred to as a :term:`bidirectional relationship`, and is a key
 feature of the SQLAlchemy ORM.   The section :ref:`relationships_backref`
 discusses the "backref" feature in detail.
 
-Arguments to :func:`.relationship` which concern the remote class
+Arguments to :func:`_orm.relationship` which concern the remote class
 can be specified using strings, assuming the Declarative system is in
 use.   Once all mappings are complete, these strings are evaluated
 as Python expressions in order to produce the actual argument, in the
@@ -1182,7 +1225,7 @@ above case the ``User`` class.   The names which are allowed during
 this evaluation include, among other things, the names of all classes
 which have been created in terms of the declared base.
 
-See the docstring for :func:`.relationship` for more detail on argument style.
+See the docstring for :func:`_orm.relationship` for more detail on argument style.
 
 .. topic:: Did you know ?
 
@@ -1196,7 +1239,7 @@ See the docstring for :func:`.relationship` for more detail on argument style.
       and is a built in function of the relational database.
     * FOREIGN KEY can refer to its own table.  This is referred to as a "self-referential"
       foreign key.
-    * Read more about foreign keys at `Foreign Key - Wikipedia <http://en.wikipedia.org/wiki/Foreign_key>`_.
+    * Read more about foreign keys at `Foreign Key - Wikipedia <https://en.wikipedia.org/wiki/Foreign_key>`_.
 
 We'll need to create the ``addresses`` table in the database, so we will issue
 another CREATE from our metadata, which will skip over tables which have
@@ -1205,19 +1248,19 @@ already been created:
 .. sourcecode:: python+sql
 
     {sql}>>> Base.metadata.create_all(engine)
-    PRAGMA...
+    BEGIN...
     CREATE TABLE addresses (
         id INTEGER NOT NULL,
         email_address VARCHAR NOT NULL,
         user_id INTEGER,
         PRIMARY KEY (id),
-         FOREIGN KEY(user_id) REFERENCES users (id)
+        FOREIGN KEY(user_id) REFERENCES users (id)
     )
-    ()
+    [...] ()
     COMMIT
 
 Working with Related Objects
-=============================
+============================
 
 Now when we create a ``User``, a blank ``addresses`` collection will be
 present. Various collection types, such as sets and dictionaries, are possible
@@ -1226,7 +1269,7 @@ default, the collection is a Python list.
 
 .. sourcecode:: python+sql
 
-    >>> jack = User(name='jack', fullname='Jack Bean', password='gjffdd')
+    >>> jack = User(name='jack', fullname='Jack Bean', nickname='gjffdd')
     >>> jack.addresses
     []
 
@@ -1250,7 +1293,7 @@ using any SQL:
     <Address(email_address='j25@yahoo.com')>
 
     >>> jack.addresses[1].user
-    <User(name='jack', fullname='Jack Bean', password='gjffdd')>
+    <User(name='jack', fullname='Jack Bean', nickname='gjffdd')>
 
 Let's add and commit ``Jack Bean`` to the database. ``jack`` as well
 as the two ``Address`` members in the corresponding ``addresses``
@@ -1261,12 +1304,12 @@ known as **cascading**:
 
     >>> session.add(jack)
     {sql}>>> session.commit()
-    INSERT INTO users (name, fullname, password) VALUES (?, ?, ?)
-    ('jack', 'Jack Bean', 'gjffdd')
+    INSERT INTO users (name, fullname, nickname) VALUES (?, ?, ?)
+    [...] ('jack', 'Jack Bean', 'gjffdd')
     INSERT INTO addresses (email_address, user_id) VALUES (?, ?)
-    ('jack@google.com', 5)
+    [...] ('jack@google.com', 5)
     INSERT INTO addresses (email_address, user_id) VALUES (?, ?)
-    ('j25@yahoo.com', 5)
+    [...] ('j25@yahoo.com', 5)
     COMMIT
 
 Querying for Jack, we get just Jack back.  No SQL is yet issued for Jack's addresses:
@@ -1279,13 +1322,13 @@ Querying for Jack, we get just Jack back.  No SQL is yet issued for Jack's addre
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password
+            users.nickname AS users_nickname
     FROM users
     WHERE users.name = ?
-    ('jack',)
+    [...] ('jack',)
 
     {stop}>>> jack
-    <User(name='jack', fullname='Jack Bean', password='gjffdd')>
+    <User(name='jack', fullname='Jack Bean', nickname='gjffdd')>
 
 Let's look at the ``addresses`` collection.  Watch the SQL:
 
@@ -1298,7 +1341,7 @@ Let's look at the ``addresses`` collection.  Watch the SQL:
             addresses.user_id AS addresses_user_id
     FROM addresses
     WHERE ? = addresses.user_id ORDER BY addresses.id
-    (5,)
+    [...] (5,)
     {stop}[<Address(email_address='jack@google.com')>, <Address(email_address='j25@yahoo.com')>]
 
 When we accessed the ``addresses`` collection, SQL was suddenly issued. This
@@ -1309,16 +1352,16 @@ to optimize the loading of this collection in a bit.
 .. _ormtutorial_joins:
 
 Querying with Joins
-====================
+===================
 
-Now that we have two tables, we can show some more features of :class:`.Query`,
+Now that we have two tables, we can show some more features of :class:`_query.Query`,
 specifically how to create queries that deal with both tables at the same time.
 The `Wikipedia page on SQL JOIN
-<http://en.wikipedia.org/wiki/Join_%28SQL%29>`_ offers a good introduction to
+<https://en.wikipedia.org/wiki/Join_%28SQL%29>`_ offers a good introduction to
 join techniques, several of which we'll illustrate here.
 
 To construct a simple implicit join between ``User`` and ``Address``,
-we can use :meth:`.Query.filter()` to equate their related columns together.
+we can use :meth:`_query.Query.filter` to equate their related columns together.
 Below we load the ``User`` and ``Address`` entities at once using this method:
 
 .. sourcecode:: python+sql
@@ -1332,19 +1375,19 @@ Below we load the ``User`` and ``Address`` entities at once using this method:
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password,
+            users.nickname AS users_nickname,
             addresses.id AS addresses_id,
             addresses.email_address AS addresses_email_address,
             addresses.user_id AS addresses_user_id
     FROM users, addresses
     WHERE users.id = addresses.user_id
             AND addresses.email_address = ?
-    ('jack@google.com',)
-    {stop}<User(name='jack', fullname='Jack Bean', password='gjffdd')>
+    [...] ('jack@google.com',)
+    {stop}<User(name='jack', fullname='Jack Bean', nickname='gjffdd')>
     <Address(email_address='jack@google.com')>
 
 The actual SQL JOIN syntax, on the other hand, is most easily achieved
-using the :meth:`.Query.join` method:
+using the :meth:`_query.Query.join` method:
 
 .. sourcecode:: python+sql
 
@@ -1354,39 +1397,39 @@ using the :meth:`.Query.join` method:
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password
+            users.nickname AS users_nickname
     FROM users JOIN addresses ON users.id = addresses.user_id
     WHERE addresses.email_address = ?
-    ('jack@google.com',)
-    {stop}[<User(name='jack', fullname='Jack Bean', password='gjffdd')>]
+    [...] ('jack@google.com',)
+    {stop}[<User(name='jack', fullname='Jack Bean', nickname='gjffdd')>]
 
-:meth:`.Query.join` knows how to join between ``User``
+:meth:`_query.Query.join` knows how to join between ``User``
 and ``Address`` because there's only one foreign key between them. If there
-were no foreign keys, or several, :meth:`.Query.join`
+were no foreign keys, or several, :meth:`_query.Query.join`
 works better when one of the following forms are used::
 
-    query.join(Address, User.id==Address.user_id)    # explicit condition
-    query.join(User.addresses)                       # specify relationship from left to right
-    query.join(Address, User.addresses)              # same, with explicit target
-    query.join('addresses')                          # same, using a string
+    query.join(Address, User.id==Address.user_id)          # explicit condition
+    query.join(User.addresses)                             # specify relationship from left to right
+    query.join(Address, User.addresses)                    # same, with explicit target
+    query.join(User.addresses.and_(Address.name != 'foo')) # use relationship + additional ON criteria
 
 As you would expect, the same idea is used for "outer" joins, using the
-:meth:`~.Query.outerjoin` function::
+:meth:`_query.Query.outerjoin` function::
 
     query.outerjoin(User.addresses)   # LEFT OUTER JOIN
 
-The reference documentation for :meth:`~.Query.join` contains detailed information
-and examples of the calling styles accepted by this method; :meth:`~.Query.join`
+The reference documentation for :meth:`_query.Query.join` contains detailed information
+and examples of the calling styles accepted by this method; :meth:`_query.Query.join`
 is an important method at the center of usage for any SQL-fluent application.
 
-.. topic:: What does :class:`.Query` select from if there's multiple entities?
+.. topic:: What does :class:`_query.Query` select from if there's multiple entities?
 
-    The :meth:`.Query.join` method will **typically join from the leftmost
+    The :meth:`_query.Query.join` method will **typically join from the leftmost
     item** in the list of entities, when the ON clause is omitted, or if the
     ON clause is a plain SQL expression.  To control the first entity in the list
-    of JOINs, use the :meth:`.Query.select_from` method::
+    of JOINs, use the :meth:`_query.Query.select_from` method::
 
-        query = Session.query(User, Address).select_from(Address).join(User)
+        query = session.query(User, Address).select_from(Address).join(User)
 
 
 .. _ormtutorial_aliases:
@@ -1397,10 +1440,13 @@ Using Aliases
 When querying across multiple tables, if the same table needs to be referenced
 more than once, SQL typically requires that the table be *aliased* with
 another name, so that it can be distinguished against other occurrences of
-that table. The :class:`~sqlalchemy.orm.query.Query` supports this most
-explicitly using the :attr:`~sqlalchemy.orm.aliased` construct. Below we join to the ``Address``
-entity twice, to locate a user who has two distinct email addresses at the
-same time:
+that table.   This is supported using the
+:func:`_orm.aliased` construct.   When joining to relationships using
+using :func:`_orm.aliased`, the special attribute method
+:meth:`_orm.PropComparator.of_type` may be used to alter the target of
+a relationship join to refer to a given :func:`_orm.aliased` object.
+Below we join to the ``Address`` entity twice, to locate a user who has two
+distinct email addresses at the same time:
 
 .. sourcecode:: python+sql
 
@@ -1409,8 +1455,8 @@ same time:
     >>> adalias2 = aliased(Address)
     {sql}>>> for username, email1, email2 in \
     ...     session.query(User.name, adalias1.email_address, adalias2.email_address).\
-    ...     join(adalias1, User.addresses).\
-    ...     join(adalias2, User.addresses).\
+    ...     join(User.addresses.of_type(adalias1)).\
+    ...     join(User.addresses.of_type(adalias2)).\
     ...     filter(adalias1.email_address=='jack@google.com').\
     ...     filter(adalias2.email_address=='j25@yahoo.com'):
     ...     print(username, email1, email2)
@@ -1423,8 +1469,15 @@ same time:
             ON users.id = addresses_2.user_id
     WHERE addresses_1.email_address = ?
             AND addresses_2.email_address = ?
-    ('jack@google.com', 'j25@yahoo.com')
+    [...] ('jack@google.com', 'j25@yahoo.com')
     {stop}jack jack@google.com j25@yahoo.com
+
+In addition to using the :meth:`_orm.PropComparator.of_type` method, it is
+common to see the :meth:`_orm.Query.join` method joining to a specific
+target by indicating it separately::
+
+    # equivalent to query.join(User.addresses.of_type(adalias1))
+    q = query.join(adalias1, User.addresses)
 
 Using Subqueries
 ----------------
@@ -1444,7 +1497,7 @@ get rows back for those users who don't have any addresses, e.g.::
 Using the :class:`~sqlalchemy.orm.query.Query`, we build a statement like this
 from the inside out. The ``statement`` accessor returns a SQL expression
 representing the statement generated by a particular
-:class:`~sqlalchemy.orm.query.Query` - this is an instance of a :func:`~.expression.select`
+:class:`~sqlalchemy.orm.query.Query` - this is an instance of a :func:`_expression.select`
 construct, which are described in :ref:`sqlexpression_toplevel`::
 
     >>> from sqlalchemy.sql import func
@@ -1470,19 +1523,19 @@ accessible through an attribute called ``c``:
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password,
+            users.nickname AS users_nickname,
             anon_1.address_count AS anon_1_address_count
     FROM users LEFT OUTER JOIN
         (SELECT addresses.user_id AS user_id, count(?) AS address_count
         FROM addresses GROUP BY addresses.user_id) AS anon_1
         ON users.id = anon_1.user_id
     ORDER BY users.id
-    ('*',)
-    {stop}<User(name='ed', fullname='Ed Jones', password='f8s7ccs')> None
-    <User(name='wendy', fullname='Wendy Williams', password='foobar')> None
-    <User(name='mary', fullname='Mary Contrary', password='xxg527')> None
-    <User(name='fred', fullname='Fred Flinstone', password='blah')> None
-    <User(name='jack', fullname='Jack Bean', password='gjffdd')> 2
+    [...] ('*',)
+    {stop}<User(name='ed', fullname='Ed Jones', nickname='eddie')> None
+    <User(name='wendy', fullname='Wendy Williams', nickname='windy')> None
+    <User(name='mary', fullname='Mary Contrary', nickname='mary')> None
+    <User(name='fred', fullname='Fred Flintstone', nickname='freddy')> None
+    <User(name='jack', fullname='Jack Bean', nickname='gjffdd')> 2
 
 Selecting Entities from Subqueries
 ----------------------------------
@@ -1496,15 +1549,15 @@ to associate an "alias" of a mapped class to a subquery:
     {sql}>>> stmt = session.query(Address).\
     ...                 filter(Address.email_address != 'j25@yahoo.com').\
     ...                 subquery()
-    >>> adalias = aliased(Address, stmt)
-    >>> for user, address in session.query(User, adalias).\
-    ...         join(adalias, User.addresses):
+    >>> addr_alias = aliased(Address, stmt)
+    >>> for user, address in session.query(User, addr_alias).\
+    ...         join(addr_alias, User.addresses):
     ...     print(user)
     ...     print(address)
     SELECT users.id AS users_id,
                 users.name AS users_name,
                 users.fullname AS users_fullname,
-                users.password AS users_password,
+                users.nickname AS users_nickname,
                 anon_1.id AS anon_1_id,
                 anon_1.email_address AS anon_1_email_address,
                 anon_1.user_id AS anon_1_user_id
@@ -1515,8 +1568,8 @@ to associate an "alias" of a mapped class to a subquery:
         FROM addresses
         WHERE addresses.email_address != ?) AS anon_1
         ON users.id = anon_1.user_id
-    ('j25@yahoo.com',)
-    {stop}<User(name='jack', fullname='Jack Bean', password='gjffdd')>
+    [...] ('j25@yahoo.com',)
+    {stop}<User(name='jack', fullname='Jack Bean', nickname='gjffdd')>
     <Address(email_address='jack@google.com')>
 
 Using EXISTS
@@ -1540,7 +1593,7 @@ There is an explicit EXISTS construct, which looks like this:
     WHERE EXISTS (SELECT *
     FROM addresses
     WHERE addresses.user_id = users.id)
-    ()
+    [...] ()
     {stop}jack
 
 The :class:`~sqlalchemy.orm.query.Query` features several operators which make
@@ -1557,7 +1610,7 @@ usage of EXISTS automatically. Above, the statement can be expressed along the
     WHERE EXISTS (SELECT 1
     FROM addresses
     WHERE users.id = addresses.user_id)
-    ()
+    [...] ()
     {stop}jack
 
 :meth:`~.RelationshipProperty.Comparator.any` takes criterion as well, to limit the rows matched:
@@ -1572,7 +1625,7 @@ usage of EXISTS automatically. Above, the statement can be expressed along the
     WHERE EXISTS (SELECT 1
     FROM addresses
     WHERE users.id = addresses.user_id AND addresses.email_address LIKE ?)
-    ('%google%',)
+    [...] ('%google%',)
     {stop}jack
 
 :meth:`~.RelationshipProperty.Comparator.has` is the same operator as
@@ -1590,7 +1643,7 @@ usage of EXISTS automatically. Above, the statement can be expressed along the
     WHERE NOT (EXISTS (SELECT 1
     FROM users
     WHERE users.id = addresses.user_id AND users.name = ?))
-    ('jack',)
+    [...] ('jack',)
     {stop}[]
 
 Common Relationship Operators
@@ -1627,7 +1680,7 @@ and behavior:
 
     query.filter(Address.user.has(name='ed'))
 
-* :meth:`.Query.with_parent` (used for any relationship)::
+* :meth:`_query.Query.with_parent` (used for any relationship)::
 
     session.query(Address).with_parent(someuser, 'addresses')
 
@@ -1640,61 +1693,52 @@ was emitted.  If you want to reduce the number of queries (dramatically, in many
 we can apply an :term:`eager load` to the query operation.   SQLAlchemy
 offers three types of eager loading, two of which are automatic, and a third
 which involves custom criterion.   All three are usually invoked via functions known
-as :term:`query options` which give additional instructions to the :class:`.Query` on how
-we would like various attributes to be loaded, via the :meth:`.Query.options` method.
+as query options which give additional instructions to the :class:`_query.Query` on how
+we would like various attributes to be loaded, via the :meth:`_query.Query.options` method.
 
-Subquery Load
+Selectin Load
 -------------
 
 In this case we'd like to indicate that ``User.addresses`` should load eagerly.
 A good choice for loading a set of objects as well as their related collections
-is the :func:`.orm.subqueryload` option, which emits a second SELECT statement
+is the :func:`_orm.selectinload` option, which emits a second SELECT statement
 that fully loads the collections associated with the results just loaded.
-The name "subquery" originates from the fact that the SELECT statement
-constructed directly via the :class:`.Query` is re-used, embedded as a subquery
-into a SELECT against the related table.   This is a little elaborate but
-very easy to use:
+The name "selectin" originates from the fact that the SELECT statement
+uses an IN clause in order to locate related rows for multiple objects
+at once:
 
 .. sourcecode:: python+sql
 
-    >>> from sqlalchemy.orm import subqueryload
+    >>> from sqlalchemy.orm import selectinload
     {sql}>>> jack = session.query(User).\
-    ...                 options(subqueryload(User.addresses)).\
+    ...                 options(selectinload(User.addresses)).\
     ...                 filter_by(name='jack').one()
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password
+            users.nickname AS users_nickname
     FROM users
     WHERE users.name = ?
-    ('jack',)
-    SELECT addresses.id AS addresses_id,
-            addresses.email_address AS addresses_email_address,
-            addresses.user_id AS addresses_user_id,
-            anon_1.users_id AS anon_1_users_id
-    FROM (SELECT users.id AS users_id
-        FROM users WHERE users.name = ?) AS anon_1
-    JOIN addresses ON anon_1.users_id = addresses.user_id
-    ORDER BY anon_1.users_id, addresses.id
-    ('jack',)
+    [...] ('jack',)
+    SELECT addresses.user_id AS addresses_user_id,
+            addresses.id AS addresses_id,
+            addresses.email_address AS addresses_email_address
+    FROM addresses
+    WHERE addresses.user_id IN (?)
+    ORDER BY addresses.id
+    [...] (5,)
     {stop}>>> jack
-    <User(name='jack', fullname='Jack Bean', password='gjffdd')>
+    <User(name='jack', fullname='Jack Bean', nickname='gjffdd')>
 
     >>> jack.addresses
     [<Address(email_address='jack@google.com')>, <Address(email_address='j25@yahoo.com')>]
 
-.. note::
-
-   :func:`.subqueryload` when used in conjunction with limiting such as
-   :meth:`.Query.first`, :meth:`.Query.limit` or :meth:`.Query.offset`
-   should also include :meth:`.Query.order_by` on a unique column in order to
-   ensure correct results.  See :ref:`subqueryload_ordering`.
 
 Joined Load
--------------
+-----------
 
 The other automatic eager loading function is more well known and is called
-:func:`.orm.joinedload`.   This style of loading emits a JOIN, by default
+:func:`_orm.joinedload`.   This style of loading emits a JOIN, by default
 a LEFT OUTER JOIN, so that the lead object as well as the related object
 or collection is loaded in one step.   We illustrate loading the same
 ``addresses`` collection in this way - note that even though the ``User.addresses``
@@ -1711,55 +1755,58 @@ will emit the extra join regardless:
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password,
+            users.nickname AS users_nickname,
             addresses_1.id AS addresses_1_id,
             addresses_1.email_address AS addresses_1_email_address,
             addresses_1.user_id AS addresses_1_user_id
     FROM users
         LEFT OUTER JOIN addresses AS addresses_1 ON users.id = addresses_1.user_id
     WHERE users.name = ? ORDER BY addresses_1.id
-    ('jack',)
+    [...] ('jack',)
 
     {stop}>>> jack
-    <User(name='jack', fullname='Jack Bean', password='gjffdd')>
+    <User(name='jack', fullname='Jack Bean', nickname='gjffdd')>
 
     >>> jack.addresses
     [<Address(email_address='jack@google.com')>, <Address(email_address='j25@yahoo.com')>]
 
 Note that even though the OUTER JOIN resulted in two rows, we still only got
-one instance of ``User`` back.  This is because :class:`.Query` applies a "uniquing"
+one instance of ``User`` back.  This is because :class:`_query.Query` applies a "uniquing"
 strategy, based on object identity, to the returned entities.  This is specifically
 so that joined eager loading can be applied without affecting the query results.
 
-While :func:`.joinedload` has been around for a long time, :func:`.subqueryload`
-is a newer form of eager loading.   :func:`.subqueryload` tends to be more appropriate
-for loading related collections while :func:`.joinedload` tends to be better suited
+While :func:`_orm.joinedload` has been around for a long time, :func:`.selectinload`
+is a newer form of eager loading.   :func:`.selectinload` tends to be more appropriate
+for loading related collections while :func:`_orm.joinedload` tends to be better suited
 for many-to-one relationships, due to the fact that only one row is loaded
-for both the lead and the related object.
+for both the lead and the related object.   Another form of loading,
+:func:`.subqueryload`, also exists, which can be used in place of
+:func:`.selectinload` when making use of composite primary keys on certain
+backends.
 
 .. topic:: ``joinedload()`` is not a replacement for ``join()``
 
-   The join created by :func:`.joinedload` is anonymously aliased such that
-   it **does not affect the query results**.   An :meth:`.Query.order_by`
-   or :meth:`.Query.filter` call **cannot** reference these aliased
+   The join created by :func:`_orm.joinedload` is anonymously aliased such that
+   it **does not affect the query results**.   An :meth:`_query.Query.order_by`
+   or :meth:`_query.Query.filter` call **cannot** reference these aliased
    tables - so-called "user space" joins are constructed using
-   :meth:`.Query.join`.   The rationale for this is that :func:`.joinedload` is only
+   :meth:`_query.Query.join`.   The rationale for this is that :func:`_orm.joinedload` is only
    applied in order to affect how related objects or collections are loaded
    as an optimizing detail - it can be added or removed with no impact
    on actual results.   See the section :ref:`zen_of_eager_loading` for
    a detailed description of how this is used.
 
 Explicit Join + Eagerload
---------------------------
+-------------------------
 
 A third style of eager loading is when we are constructing a JOIN explicitly in
 order to locate the primary rows, and would like to additionally apply the extra
 table to a related object or collection on the primary object.   This feature
-is supplied via the :func:`.orm.contains_eager` function, and is most
+is supplied via the :func:`_orm.contains_eager` function, and is most
 typically useful for pre-loading the many-to-one object on a query that needs
 to filter on that same object.  Below we illustrate loading an ``Address``
 row as well as the related ``User`` object, filtering on the ``User`` named
-"jack" and using :func:`.orm.contains_eager` to apply the "user" columns to the ``Address.user``
+"jack" and using :func:`_orm.contains_eager` to apply the "user" columns to the ``Address.user``
 attribute:
 
 .. sourcecode:: python+sql
@@ -1773,19 +1820,19 @@ attribute:
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password,
+            users.nickname AS users_nickname,
             addresses.id AS addresses_id,
             addresses.email_address AS addresses_email_address,
             addresses.user_id AS addresses_user_id
     FROM addresses JOIN users ON users.id = addresses.user_id
     WHERE users.name = ?
-    ('jack',)
+    [...] ('jack',)
 
     {stop}>>> jacks_addresses
     [<Address(email_address='jack@google.com')>, <Address(email_address='j25@yahoo.com')>]
 
     >>> jacks_addresses[0].user
-    <User(name='jack', fullname='Jack Bean', password='gjffdd')>
+    <User(name='jack', fullname='Jack Bean', nickname='gjffdd')>
 
 For more information on eager loading, including how to configure various forms
 of loading by default, see the section :doc:`/orm/loading_relationships`.
@@ -1801,17 +1848,17 @@ in the session, then we'll issue a ``count`` query to see that no rows remain:
     >>> session.delete(jack)
     {sql}>>> session.query(User).filter_by(name='jack').count()
     UPDATE addresses SET user_id=? WHERE addresses.id = ?
-    ((None, 1), (None, 2))
+    [...] ((None, 1), (None, 2))
     DELETE FROM users WHERE users.id = ?
-    (5,)
+    [...] (5,)
     SELECT count(*) AS count_1
     FROM (SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password
+            users.nickname AS users_nickname
     FROM users
     WHERE users.name = ?) AS anon_1
-    ('jack',)
+    [...] ('jack',)
     {stop}0
 
 So far, so good.  How about Jack's ``Address`` objects ?
@@ -1827,7 +1874,7 @@ So far, so good.  How about Jack's ``Address`` objects ?
                     addresses.user_id AS addresses_user_id
     FROM addresses
     WHERE addresses.email_address IN (?, ?)) AS anon_1
-    ('jack@google.com', 'j25@yahoo.com')
+    [...] ('jack@google.com', 'j25@yahoo.com')
     {stop}2
 
 Uh oh, they're still there ! Analyzing the flush SQL, we can see that the
@@ -1863,14 +1910,14 @@ including the cascade configuration (we'll leave the constructor out too)::
     ...     id = Column(Integer, primary_key=True)
     ...     name = Column(String)
     ...     fullname = Column(String)
-    ...     password = Column(String)
+    ...     nickname = Column(String)
     ...
     ...     addresses = relationship("Address", back_populates='user',
     ...                     cascade="all, delete, delete-orphan")
     ...
     ...     def __repr__(self):
-    ...        return "<User(name='%s', fullname='%s', password='%s')>" % (
-    ...                                self.name, self.fullname, self.password)
+    ...        return "<User(name='%s', fullname='%s', nickname='%s')>" % (
+    ...                                self.name, self.fullname, self.nickname)
 
 Then we recreate ``Address``, noting that in this case we've created
 the ``Address.user`` relationship via the ``User`` class already::
@@ -1885,7 +1932,7 @@ the ``Address.user`` relationship via the ``User`` class already::
     ...     def __repr__(self):
     ...         return "<Address(email_address='%s')>" % self.email_address
 
-Now when we load the user ``jack`` (below using :meth:`~.Query.get`,
+Now when we load the user ``jack`` (below using :meth:`_query.Query.get`,
 which loads by primary key), removing an address from the
 corresponding ``addresses`` collection will result in that ``Address``
 being deleted:
@@ -1893,15 +1940,15 @@ being deleted:
 .. sourcecode:: python+sql
 
     # load Jack by primary key
-    {sql}>>> jack = session.query(User).get(5)
+    {sql}>>> jack = session.get(User, 5)
     BEGIN (implicit)
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password
+            users.nickname AS users_nickname
     FROM users
     WHERE users.id = ?
-    (5,)
+    [...] (5,)
     {stop}
 
     # remove one Address (lazy load fires off)
@@ -1911,7 +1958,7 @@ being deleted:
             addresses.user_id AS addresses_user_id
     FROM addresses
     WHERE ? = addresses.user_id
-    (5,)
+    [...] (5,)
     {stop}
 
     # only one address remains
@@ -1919,14 +1966,14 @@ being deleted:
     ...     Address.email_address.in_(['jack@google.com', 'j25@yahoo.com'])
     ... ).count()
     DELETE FROM addresses WHERE addresses.id = ?
-    (2,)
+    [...] (2,)
     SELECT count(*) AS count_1
     FROM (SELECT addresses.id AS addresses_id,
                     addresses.email_address AS addresses_email_address,
                     addresses.user_id AS addresses_user_id
     FROM addresses
     WHERE addresses.email_address IN (?, ?)) AS anon_1
-    ('jack@google.com', 'j25@yahoo.com')
+    [...] ('jack@google.com', 'j25@yahoo.com')
     {stop}1
 
 Deleting Jack will delete both Jack and the remaining ``Address`` associated
@@ -1938,17 +1985,17 @@ with the user:
 
     {sql}>>> session.query(User).filter_by(name='jack').count()
     DELETE FROM addresses WHERE addresses.id = ?
-    (1,)
+    [...] (1,)
     DELETE FROM users WHERE users.id = ?
-    (5,)
+    [...] (5,)
     SELECT count(*) AS count_1
     FROM (SELECT users.id AS users_id,
                     users.name AS users_name,
                     users.fullname AS users_fullname,
-                    users.password AS users_password
+                    users.nickname AS users_nickname
     FROM users
     WHERE users.name = ?) AS anon_1
-    ('jack',)
+    [...] ('jack',)
     {stop}0
 
     {sql}>>> session.query(Address).filter(
@@ -1960,7 +2007,7 @@ with the user:
                     addresses.user_id AS addresses_user_id
     FROM addresses
     WHERE addresses.email_address IN (?, ?)) AS anon_1
-    ('jack@google.com', 'j25@yahoo.com')
+    [...] ('jack@google.com', 'j25@yahoo.com')
     {stop}0
 
 .. topic:: More on Cascades
@@ -1980,7 +2027,7 @@ relationship. We'll sneak in some other features too, just to take a tour.
 We'll make our application a blog application, where users can write
 ``BlogPost`` items, which have ``Keyword`` items associated with them.
 
-For a plain many-to-many, we need to create an un-mapped :class:`.Table` construct
+For a plain many-to-many, we need to create an un-mapped :class:`_schema.Table` construct
 to serve as the association table.  This looks like the following::
 
     >>> from sqlalchemy import Table, Text
@@ -1990,14 +2037,14 @@ to serve as the association table.  This looks like the following::
     ...     Column('keyword_id', ForeignKey('keywords.id'), primary_key=True)
     ... )
 
-Above, we can see declaring a :class:`.Table` directly is a little different
-than declaring a mapped class.  :class:`.Table` is a constructor function, so
-each individual :class:`.Column` argument is separated by a comma.  The
-:class:`.Column` object is also given its name explicitly, rather than it being
+Above, we can see declaring a :class:`_schema.Table` directly is a little different
+than declaring a mapped class.  :class:`_schema.Table` is a constructor function, so
+each individual :class:`_schema.Column` argument is separated by a comma.  The
+:class:`_schema.Column` object is also given its name explicitly, rather than it being
 taken from an assigned attribute name.
 
 Next we define ``BlogPost`` and ``Keyword``, using complementary
-:func:`.relationship` constructs, each referring to the ``post_keywords``
+:func:`_orm.relationship` constructs, each referring to the ``post_keywords``
 table as an association table::
 
     >>> class BlogPost(Base):
@@ -2066,15 +2113,14 @@ Create new tables:
 .. sourcecode:: python+sql
 
     {sql}>>> Base.metadata.create_all(engine)
-    PRAGMA...
+    BEGIN...
     CREATE TABLE keywords (
         id INTEGER NOT NULL,
         keyword VARCHAR(50) NOT NULL,
         PRIMARY KEY (id),
         UNIQUE (keyword)
     )
-    ()
-    COMMIT
+    [...] ()
     CREATE TABLE posts (
         id INTEGER NOT NULL,
         user_id INTEGER,
@@ -2083,8 +2129,7 @@ Create new tables:
         PRIMARY KEY (id),
         FOREIGN KEY(user_id) REFERENCES users (id)
     )
-    ()
-    COMMIT
+    [...] ()
     CREATE TABLE post_keywords (
         post_id INTEGER NOT NULL,
         keyword_id INTEGER NOT NULL,
@@ -2092,7 +2137,7 @@ Create new tables:
         FOREIGN KEY(post_id) REFERENCES posts (id),
         FOREIGN KEY(keyword_id) REFERENCES keywords (id)
     )
-    ()
+    [...] ()
     COMMIT
 
 Usage is not too different from what we've been doing.  Let's give Wendy some blog posts:
@@ -2105,10 +2150,10 @@ Usage is not too different from what we've been doing.  Let's give Wendy some bl
     SELECT users.id AS users_id,
             users.name AS users_name,
             users.fullname AS users_fullname,
-            users.password AS users_password
+            users.nickname AS users_nickname
     FROM users
     WHERE users.name = ?
-    ('wendy',)
+    [...] ('wendy',)
     {stop}
     >>> post = BlogPost("Wendy's Blog Post", "This is a test", wendy)
     >>> session.add(post)
@@ -2131,13 +2176,13 @@ keyword string 'firstpost'":
     ...             filter(BlogPost.keywords.any(keyword='firstpost')).\
     ...             all()
     INSERT INTO keywords (keyword) VALUES (?)
-    ('wendy',)
+    [...] ('wendy',)
     INSERT INTO keywords (keyword) VALUES (?)
-    ('firstpost',)
+    [...] ('firstpost',)
     INSERT INTO posts (user_id, headline, body) VALUES (?, ?, ?)
-    (2, "Wendy's Blog Post", 'This is a test')
+    [...] (2, "Wendy's Blog Post", 'This is a test')
     INSERT INTO post_keywords (post_id, keyword_id) VALUES (?, ?)
-    (...)
+    [...] (...)
     SELECT posts.id AS posts_id,
             posts.user_id AS posts_user_id,
             posts.headline AS posts_headline,
@@ -2148,8 +2193,8 @@ keyword string 'firstpost'":
         WHERE posts.id = post_keywords.post_id
             AND keywords.id = post_keywords.keyword_id
             AND keywords.keyword = ?)
-    ('firstpost',)
-    {stop}[BlogPost("Wendy's Blog Post", 'This is a test', <User(name='wendy', fullname='Wendy Williams', password='foobar')>)]
+    [...] ('firstpost',)
+    {stop}[BlogPost("Wendy's Blog Post", 'This is a test', <User(name='wendy', fullname='Wendy Williams', nickname='windy')>)]
 
 If we want to look up posts owned by the user ``wendy``, we can tell
 the query to narrow down to that ``User`` object as a parent:
@@ -2170,8 +2215,8 @@ the query to narrow down to that ``User`` object as a parent:
         WHERE posts.id = post_keywords.post_id
             AND keywords.id = post_keywords.keyword_id
             AND keywords.keyword = ?))
-    (2, 'firstpost')
-    {stop}[BlogPost("Wendy's Blog Post", 'This is a test', <User(name='wendy', fullname='Wendy Williams', password='foobar')>)]
+    [...] (2, 'firstpost')
+    {stop}[BlogPost("Wendy's Blog Post", 'This is a test', <User(name='wendy', fullname='Wendy Williams', nickname='windy')>)]
 
 Or we can use Wendy's own ``posts`` relationship, which is a "dynamic"
 relationship, to query straight from there:
@@ -2191,8 +2236,8 @@ relationship, to query straight from there:
         WHERE posts.id = post_keywords.post_id
             AND keywords.id = post_keywords.keyword_id
             AND keywords.keyword = ?))
-    (2, 'firstpost')
-    {stop}[BlogPost("Wendy's Blog Post", 'This is a test', <User(name='wendy', fullname='Wendy Williams', password='foobar')>)]
+    [...] (2, 'firstpost')
+    {stop}[BlogPost("Wendy's Blog Post", 'This is a test', <User(name='wendy', fullname='Wendy Williams', nickname='windy')>)]
 
 Further Reference
 ==================
@@ -2204,3 +2249,9 @@ Mapper Reference: :ref:`mapper_config_toplevel`
 Relationship Reference: :ref:`relationship_config_toplevel`
 
 Session Reference: :doc:`/orm/session`
+
+
+..  Setup code, not for display
+
+    >>> session.close()
+    ROLLBACK

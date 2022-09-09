@@ -1,37 +1,45 @@
-import gevent.monkey
-gevent.monkey.patch_all()
+from __future__ import print_function
 
 import logging
-logging.basicConfig()
-#logging.getLogger("sqlalchemy.pool").setLevel(logging.INFO)
-from sqlalchemy import event
 import random
 import sys
-from sqlalchemy import create_engine
-import traceback
 
-engine = create_engine('mysql+pymysql://scott:tiger@localhost/test',
-                       pool_size=50, max_overflow=0)
+import gevent.monkey
+
+from sqlalchemy import create_engine
+from sqlalchemy import event
+
+
+gevent.monkey.patch_all()  # noqa
+
+logging.basicConfig()  # noqa
+# logging.getLogger("sqlalchemy.pool").setLevel(logging.INFO)
+
+engine = create_engine(
+    "mysql+pymysql://scott:tiger@localhost/test", pool_size=50, max_overflow=0
+)
+
 
 @event.listens_for(engine, "connect")
 def conn(*arg):
-    print "new connection!"
+    print("new connection!")
+
 
 def worker():
     while True:
         conn = engine.connect()
         try:
-            trans = conn.begin()
+            conn.begin()
             for i in range(5):
-                conn.execute("SELECT 1+1")
+                conn.exec_driver_sql("SELECT 1+1")
                 gevent.sleep(random.random() * 1.01)
 
-        except:
-            #traceback.print_exc()
-            sys.stderr.write('X')
+        except Exception:
+            # traceback.print_exc()
+            sys.stderr.write("X")
         else:
             conn.close()
-            sys.stderr.write('.')
+            sys.stderr.write(".")
 
 
 def main():
@@ -41,9 +49,9 @@ def main():
     gevent.sleep(3)
 
     while True:
-        result = list(engine.execute("show processlist"))
-        engine.execute("kill %d" % result[-2][0])
-        print "\n\n\n BOOM!!!!! \n\n\n"
+        result = list(engine.exec_driver_sql("show processlist"))
+        engine.exec_driver_sql("kill %d" % result[-2][0])
+        print("\n\n\n BOOM!!!!! \n\n\n")
         gevent.sleep(5)
         print(engine.pool.status())
 

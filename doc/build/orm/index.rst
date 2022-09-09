@@ -1,7 +1,7 @@
 .. _orm_toplevel:
 
 SQLAlchemy ORM
-===============
+==============
 
 Here, the Object Relational Mapper is introduced and fully described. If you
 want to work with higher-level SQL which is constructed automatically for you,
@@ -11,6 +11,7 @@ tutorial.
 .. toctree::
     :maxdepth: 2
 
+    quickstart
     tutorial
     mapper_config
     relationships
@@ -19,3 +20,4 @@ tutorial.
     extending
     extensions/index
     examples
+

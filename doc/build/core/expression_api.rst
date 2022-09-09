@@ -10,11 +10,14 @@ see :ref:`sqlexpression_toplevel`.
 
 
 .. toctree::
-    :maxdepth: 1
+    :maxdepth: 3
 
+    foundation
     sqlelement
+    operators
     selectable
     dml
     functions
     compiler
     serializer
+    visitors

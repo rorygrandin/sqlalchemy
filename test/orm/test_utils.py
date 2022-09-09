@@ -1,34 +1,54 @@
-from sqlalchemy.testing import assert_raises, assert_raises_message
-from sqlalchemy.orm import util as orm_util
 from sqlalchemy import Column
-from sqlalchemy import util
+from sqlalchemy import inspect
 from sqlalchemy import Integer
 from sqlalchemy import MetaData
+from sqlalchemy import select
 from sqlalchemy import Table
-from sqlalchemy.orm import aliased, with_polymorphic, synonym
-from sqlalchemy.orm import mapper, create_session, Session
-from sqlalchemy.testing import fixtures
-from test.orm import _fixtures
-from sqlalchemy.testing import eq_, is_
-from sqlalchemy.orm.path_registry import PathRegistry, RootRegistry
-from sqlalchemy import inspect
-from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
+from sqlalchemy import testing
+from sqlalchemy import util
+from sqlalchemy.ext.hybrid import hybrid_method
+from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.orm import aliased
+from sqlalchemy.orm import clear_mappers
+from sqlalchemy.orm import Session
+from sqlalchemy.orm import synonym
+from sqlalchemy.orm import util as orm_util
+from sqlalchemy.orm import with_polymorphic
+from sqlalchemy.orm.path_registry import PathRegistry
+from sqlalchemy.orm.path_registry import RootRegistry
+from sqlalchemy.testing import assert_raises
 from sqlalchemy.testing import AssertsCompiledSQL
+from sqlalchemy.testing import eq_
+from sqlalchemy.testing import expect_warnings
+from sqlalchemy.testing import fixtures
+from sqlalchemy.testing import is_
+from sqlalchemy.testing.fixtures import fixture_session
+from sqlalchemy.util import compat
+from test.orm import _fixtures
+from .inheritance import _poly_fixtures
 
-class AliasedClassTest(fixtures.TestBase, AssertsCompiledSQL):
-    __dialect__ = 'default'
+
+class AliasedClassTest(fixtures.MappedTest, AssertsCompiledSQL):
+    __dialect__ = "default"
 
     def _fixture(self, cls, properties={}):
-        table = Table('point', MetaData(),
-                    Column('id', Integer(), primary_key=True),
-                    Column('x', Integer),
-                    Column('y', Integer))
-        mapper(cls, table, properties=properties)
+        table = Table(
+            "point",
+            MetaData(),
+            Column("id", Integer(), primary_key=True),
+            Column("x", Integer),
+            Column("y", Integer),
+        )
+        clear_mappers()
+        self.mapper_registry.map_imperatively(
+            cls, table, properties=properties
+        )
         return table
 
     def test_simple(self):
         class Point(object):
             pass
+
         table = self._fixture(Point)
 
         alias = aliased(Point)
@@ -40,10 +60,35 @@ class AliasedClassTest(fixtures.TestBase, AssertsCompiledSQL):
         assert Point.id.__clause_element__().table is table
         assert alias.id.__clause_element__().table is not table
 
+    def test_named_entity(self):
+        class Point(object):
+            pass
+
+        self._fixture(Point)
+
+        alias = aliased(Point, name="pp")
+
+        self.assert_compile(
+            select(alias), "SELECT pp.id, pp.x, pp.y FROM point AS pp"
+        )
+
+    def test_named_selectable(self):
+        class Point(object):
+            pass
+
+        table = self._fixture(Point)
+
+        alias = aliased(table, name="pp")
+
+        self.assert_compile(
+            select(alias), "SELECT pp.id, pp.x, pp.y FROM point AS pp"
+        )
+
     def test_not_instantiatable(self):
         class Point(object):
             pass
-        table = self._fixture(Point)
+
+        self._fixture(Point)
         alias = aliased(Point)
 
         assert_raises(TypeError, alias)
@@ -53,17 +98,12 @@ class AliasedClassTest(fixtures.TestBase, AssertsCompiledSQL):
             def zero(self):
                 self.x, self.y = 0, 0
 
-        table = self._fixture(Point)
+        self._fixture(Point)
         alias = aliased(Point)
 
         assert Point.zero
 
-        # TODO: I don't quite understand this
-        # still
-        if util.py2k:
-            assert not getattr(alias, 'zero')
-        else:
-            assert getattr(alias, 'zero')
+        assert getattr(alias, "zero")
 
     def test_classmethod(self):
         class Point(object):
@@ -71,7 +111,7 @@ class AliasedClassTest(fixtures.TestBase, AssertsCompiledSQL):
             def max_x(cls):
                 return 100
 
-        table = self._fixture(Point)
+        self._fixture(Point)
         alias = aliased(Point)
 
         assert Point.max_x
@@ -84,7 +124,7 @@ class AliasedClassTest(fixtures.TestBase, AssertsCompiledSQL):
             def max_x(self):
                 return 100
 
-        table = self._fixture(Point)
+        self._fixture(Point)
         alias = aliased(Point)
 
         assert Point.max_x
@@ -93,36 +133,39 @@ class AliasedClassTest(fixtures.TestBase, AssertsCompiledSQL):
         assert Point.max_x is alias.max_x
 
     def test_descriptors(self):
-
         class descriptor(object):
             def __init__(self, fn):
                 self.fn = fn
+
             def __get__(self, obj, owner):
                 if obj is not None:
                     return self.fn(obj, obj)
                 else:
                     return self
+
             def method(self):
-                return 'method'
+                return "method"
 
         class Point(object):
             center = (0, 0)
+
             @descriptor
             def thing(self, arg):
                 return arg.center
 
-        table = self._fixture(Point)
+        self._fixture(Point)
         alias = aliased(Point)
 
         assert Point.thing != (0, 0)
         assert Point().thing == (0, 0)
-        assert Point.thing.method() == 'method'
+        assert Point.thing.method() == "method"
 
         assert alias.thing != (0, 0)
-        assert alias.thing.method() == 'method'
+        assert alias.thing.method() == "method"
 
     def _assert_has_table(self, expr, table):
         from sqlalchemy import Column  # override testlib's override
+
         for child in expr.get_children():
             if isinstance(child, Column):
                 assert child.table is table
@@ -138,13 +181,13 @@ class AliasedClassTest(fixtures.TestBase, AssertsCompiledSQL):
 
         self._fixture(Point)
         alias = aliased(Point)
-        sess = Session()
+        sess = fixture_session()
 
         self.assert_compile(
             sess.query(alias).filter(alias.left_of(Point)),
             "SELECT point_1.id AS point_1_id, point_1.x AS point_1_x, "
             "point_1.y AS point_1_y FROM point AS point_1, point "
-            "WHERE point_1.x < point.x"
+            "WHERE point_1.x < point.x",
         )
 
     def test_hybrid_descriptor_two(self):
@@ -164,13 +207,13 @@ class AliasedClassTest(fixtures.TestBase, AssertsCompiledSQL):
         eq_(str(Point.double_x.__clause_element__()), "point.x * :x_1")
         eq_(str(alias.double_x.__clause_element__()), "point_1.x * :x_1")
 
-        sess = Session()
+        sess = fixture_session()
 
         self.assert_compile(
             sess.query(alias).filter(alias.double_x > Point.x),
             "SELECT point_1.id AS point_1_id, point_1.x AS point_1_x, "
             "point_1.y AS point_1_y FROM point AS point_1, point "
-            "WHERE point_1.x * :x_1 > point.x"
+            "WHERE point_1.x * :x_1 > point.x",
         )
 
     def test_hybrid_descriptor_three(self):
@@ -197,9 +240,27 @@ class AliasedClassTest(fixtures.TestBase, AssertsCompiledSQL):
         eq_(str(alias.x + 1), "point_1.x + :x_1")
         eq_(str(alias.x_alone + 1), "point_1.x + :x_1")
 
-        is_(
-            Point.x_alone.__clause_element__(),
-            Point.x.__clause_element__()
+        point_mapper = inspect(Point)
+
+        eq_(
+            Point.x_alone._annotations,
+            {
+                "entity_namespace": point_mapper,
+                "parententity": point_mapper,
+                "parentmapper": point_mapper,
+                "proxy_key": "x_alone",
+                "proxy_owner": point_mapper,
+            },
+        )
+        eq_(
+            Point.x._annotations,
+            {
+                "entity_namespace": point_mapper,
+                "parententity": point_mapper,
+                "parentmapper": point_mapper,
+                "proxy_key": "x",
+                "proxy_owner": point_mapper,
+            },
         )
 
         eq_(str(alias.x_alone == alias.x), "point_1.x = point_1.x")
@@ -207,13 +268,24 @@ class AliasedClassTest(fixtures.TestBase, AssertsCompiledSQL):
         a2 = aliased(Point)
         eq_(str(a2.x_alone == alias.x), "point_1.x = point_2.x")
 
-        sess = Session()
+        eq_(
+            a2.x._annotations,
+            {
+                "entity_namespace": inspect(a2),
+                "parententity": inspect(a2),
+                "parentmapper": point_mapper,
+                "proxy_key": "x",
+                "proxy_owner": inspect(a2),
+            },
+        )
+
+        sess = fixture_session()
 
         self.assert_compile(
             sess.query(alias).filter(alias.x_alone > Point.x),
             "SELECT point_1.id AS point_1_id, point_1.x AS point_1_x, "
             "point_1.y AS point_1_y FROM point AS point_1, point "
-            "WHERE point_1.x > point.x"
+            "WHERE point_1.x > point.x",
         )
 
     def test_proxy_descriptor_one(self):
@@ -221,28 +293,124 @@ class AliasedClassTest(fixtures.TestBase, AssertsCompiledSQL):
             def __init__(self, x, y):
                 self.x, self.y = x, y
 
-        self._fixture(Point, properties={
-            'x_syn': synonym("x")
-        })
+        self._fixture(Point, properties={"x_syn": synonym("x")})
         alias = aliased(Point)
 
         eq_(str(Point.x_syn), "Point.x_syn")
         eq_(str(alias.x_syn), "AliasedClass_Point.x_syn")
 
-        sess = Session()
+        sess = fixture_session()
         self.assert_compile(
             sess.query(alias.x_syn).filter(alias.x_syn > Point.x_syn),
             "SELECT point_1.x AS point_1_x FROM point AS point_1, point "
-            "WHERE point_1.x > point.x"
+            "WHERE point_1.x > point.x",
+        )
+
+    def test_meta_getattr_one(self):
+        class MetaPoint(type):
+            def __getattr__(cls, key):
+                if key == "x_syn":
+                    return cls.x
+                raise AttributeError(key)
+
+        class Point(compat.with_metaclass(MetaPoint)):
+            pass
+
+        self._fixture(Point)
+        alias = aliased(Point)
+
+        eq_(str(Point.x_syn), "Point.x")
+        eq_(str(alias.x_syn), "AliasedClass_Point.x")
+
+        # from __clause_element__() perspective, Point.x_syn
+        # and Point.x return the same thing, so that's good
+        eq_(str(Point.x.__clause_element__()), "point.x")
+        eq_(str(Point.x_syn.__clause_element__()), "point.x")
+
+        # same for the alias
+        eq_(str(alias.x + 1), "point_1.x + :x_1")
+        eq_(str(alias.x_syn + 1), "point_1.x + :x_1")
+
+        is_(Point.x_syn.__clause_element__(), Point.x.__clause_element__())
+
+        eq_(str(alias.x_syn == alias.x), "point_1.x = point_1.x")
+
+        a2 = aliased(Point)
+        eq_(str(a2.x_syn == alias.x), "point_1.x = point_2.x")
+
+        sess = fixture_session()
+
+        self.assert_compile(
+            sess.query(alias).filter(alias.x_syn > Point.x),
+            "SELECT point_1.id AS point_1_id, point_1.x AS point_1_x, "
+            "point_1.y AS point_1_y FROM point AS point_1, point "
+            "WHERE point_1.x > point.x",
+        )
+
+    def test_meta_getattr_two(self):
+        class MetaPoint(type):
+            def __getattr__(cls, key):
+                if key == "double_x":
+                    return cls._impl_double_x
+                raise AttributeError(key)
+
+        class Point(compat.with_metaclass(MetaPoint)):
+            @hybrid_property
+            def _impl_double_x(self):
+                return self.x * 2
+
+        self._fixture(Point)
+        alias = aliased(Point)
+
+        eq_(str(Point.double_x), "Point._impl_double_x")
+        eq_(str(alias.double_x), "AliasedClass_Point._impl_double_x")
+        eq_(str(Point.double_x.__clause_element__()), "point.x * :x_1")
+        eq_(str(alias.double_x.__clause_element__()), "point_1.x * :x_1")
+
+        sess = fixture_session()
+
+        self.assert_compile(
+            sess.query(alias).filter(alias.double_x > Point.x),
+            "SELECT point_1.id AS point_1_id, point_1.x AS point_1_x, "
+            "point_1.y AS point_1_y FROM point AS point_1, point "
+            "WHERE point_1.x * :x_1 > point.x",
+        )
+
+    def test_meta_getattr_three(self):
+        class MetaPoint(type):
+            def __getattr__(cls, key):
+                @hybrid_property
+                def double_x(me):
+                    return me.x * 2
+
+                if key == "double_x":
+                    return double_x.__get__(None, cls)
+                raise AttributeError(key)
+
+        class Point(compat.with_metaclass(MetaPoint)):
+            pass
+
+        self._fixture(Point)
+
+        alias = aliased(Point)
+
+        eq_(str(Point.double_x.__clause_element__()), "point.x * :x_1")
+        eq_(str(alias.double_x.__clause_element__()), "point_1.x * :x_1")
+
+        sess = fixture_session()
+
+        self.assert_compile(
+            sess.query(alias).filter(alias.double_x > Point.x),
+            "SELECT point_1.id AS point_1_id, point_1.x AS point_1_x, "
+            "point_1.y AS point_1_y FROM point AS point_1, point "
+            "WHERE point_1.x * :x_1 > point.x",
         )
 
     def test_parententity_vs_parentmapper(self):
         class Point(object):
             pass
 
-        self._fixture(Point, properties={
-            'x_syn': synonym("x")
-        })
+        self._fixture(Point, properties={"x_syn": synonym("x")})
         pa = aliased(Point)
 
         is_(Point.x_syn._parententity, inspect(Point))
@@ -251,17 +419,21 @@ class AliasedClassTest(fixtures.TestBase, AssertsCompiledSQL):
         is_(Point.x._parentmapper, inspect(Point))
 
         is_(
-            Point.x_syn.__clause_element__()._annotations['parententity'],
-            inspect(Point))
+            Point.x_syn.__clause_element__()._annotations["parententity"],
+            inspect(Point),
+        )
         is_(
-            Point.x.__clause_element__()._annotations['parententity'],
-            inspect(Point))
+            Point.x.__clause_element__()._annotations["parententity"],
+            inspect(Point),
+        )
         is_(
-            Point.x_syn.__clause_element__()._annotations['parentmapper'],
-            inspect(Point))
+            Point.x_syn.__clause_element__()._annotations["parentmapper"],
+            inspect(Point),
+        )
         is_(
-            Point.x.__clause_element__()._annotations['parentmapper'],
-            inspect(Point))
+            Point.x.__clause_element__()._annotations["parentmapper"],
+            inspect(Point),
+        )
 
         pa = aliased(Point)
 
@@ -271,70 +443,90 @@ class AliasedClassTest(fixtures.TestBase, AssertsCompiledSQL):
         is_(pa.x._parentmapper, inspect(Point))
 
         is_(
-            pa.x_syn.__clause_element__()._annotations['parententity'],
-            inspect(pa)
+            pa.x_syn.__clause_element__()._annotations["parententity"],
+            inspect(pa),
         )
         is_(
-            pa.x.__clause_element__()._annotations['parententity'],
-            inspect(pa)
+            pa.x.__clause_element__()._annotations["parententity"], inspect(pa)
         )
         is_(
-            pa.x_syn.__clause_element__()._annotations['parentmapper'],
-            inspect(Point))
+            pa.x_syn.__clause_element__()._annotations["parentmapper"],
+            inspect(Point),
+        )
         is_(
-            pa.x.__clause_element__()._annotations['parentmapper'],
-            inspect(Point))
+            pa.x.__clause_element__()._annotations["parentmapper"],
+            inspect(Point),
+        )
 
 
 class IdentityKeyTest(_fixtures.FixtureTest):
     run_inserts = None
 
-    def test_identity_key_1(self):
+    def _cases():
+        return testing.combinations(
+            (orm_util,),
+            (Session,),
+        )
+
+    @_cases()
+    def test_identity_key_1(self, ormutil):
         User, users = self.classes.User, self.tables.users
 
-        mapper(User, users)
+        self.mapper_registry.map_imperatively(User, users)
 
-        key = orm_util.identity_key(User, [1])
-        eq_(key, (User, (1,)))
-        key = orm_util.identity_key(User, ident=[1])
-        eq_(key, (User, (1,)))
+        key = ormutil.identity_key(User, [1])
+        eq_(key, (User, (1,), None))
+        key = ormutil.identity_key(User, ident=[1])
+        eq_(key, (User, (1,), None))
 
-    def test_identity_key_scalar(self):
+    @_cases()
+    def test_identity_key_scalar(self, ormutil):
         User, users = self.classes.User, self.tables.users
 
-        mapper(User, users)
+        self.mapper_registry.map_imperatively(User, users)
 
-        key = orm_util.identity_key(User, 1)
-        eq_(key, (User, (1,)))
-        key = orm_util.identity_key(User, ident=1)
-        eq_(key, (User, (1,)))
+        key = ormutil.identity_key(User, 1)
+        eq_(key, (User, (1,), None))
+        key = ormutil.identity_key(User, ident=1)
+        eq_(key, (User, (1,), None))
 
-    def test_identity_key_2(self):
+    @_cases()
+    def test_identity_key_2(self, ormutil):
         users, User = self.tables.users, self.classes.User
 
-        mapper(User, users)
-        s = create_session()
-        u = User(name='u1')
+        self.mapper_registry.map_imperatively(User, users)
+        s = fixture_session()
+        u = User(name="u1")
         s.add(u)
         s.flush()
-        key = orm_util.identity_key(instance=u)
-        eq_(key, (User, (u.id,)))
+        key = ormutil.identity_key(instance=u)
+        eq_(key, (User, (u.id,), None))
 
-    def test_identity_key_3(self):
+    @_cases()
+    def test_identity_key_3(self, ormutil):
         User, users = self.classes.User, self.tables.users
 
-        mapper(User, users)
+        self.mapper_registry.map_imperatively(User, users)
 
         row = {users.c.id: 1, users.c.name: "Frank"}
-        key = orm_util.identity_key(User, row=row)
-        eq_(key, (User, (1,)))
+        key = ormutil.identity_key(User, row=row)
+        eq_(key, (User, (1,), None))
+
+    def test_identity_key_token(self):
+        User, users = self.classes.User, self.tables.users
+
+        self.mapper_registry.map_imperatively(User, users)
+
+        key = orm_util.identity_key(User, [1], identity_token="token")
+        eq_(key, (User, (1,), "token"))
+        key = orm_util.identity_key(User, ident=[1], identity_token="token")
+        eq_(key, (User, (1,), "token"))
 
 
 class PathRegistryTest(_fixtures.FixtureTest):
-    run_setup_mappers = 'once'
+    run_setup_mappers = "once"
     run_inserts = None
     run_deletes = None
-
 
     @classmethod
     def setup_mappers(cls):
@@ -342,14 +534,8 @@ class PathRegistryTest(_fixtures.FixtureTest):
 
     def test_root_registry(self):
         umapper = inspect(self.classes.User)
-        is_(
-            RootRegistry()[umapper],
-            umapper._path_registry
-        )
-        eq_(
-            RootRegistry()[umapper],
-            PathRegistry.coerce((umapper,))
-        )
+        is_(RootRegistry()[umapper], umapper._path_registry)
+        eq_(RootRegistry()[umapper], PathRegistry.coerce((umapper,)))
 
     def test_expand(self):
         umapper = inspect(self.classes.User)
@@ -357,10 +543,17 @@ class PathRegistryTest(_fixtures.FixtureTest):
         path = PathRegistry.coerce((umapper,))
 
         eq_(
-            path[umapper.attrs.addresses][amapper]
-                [amapper.attrs.email_address],
-            PathRegistry.coerce((umapper, umapper.attrs.addresses,
-                                amapper, amapper.attrs.email_address))
+            path[umapper.attrs.addresses][amapper][
+                amapper.attrs.email_address
+            ],
+            PathRegistry.coerce(
+                (
+                    umapper,
+                    umapper.attrs.addresses,
+                    amapper,
+                    amapper.attrs.email_address,
+                )
+            ),
         )
 
     def test_entity_boolean(self):
@@ -383,24 +576,42 @@ class PathRegistryTest(_fixtures.FixtureTest):
     def test_indexed_entity(self):
         umapper = inspect(self.classes.User)
         amapper = inspect(self.classes.Address)
-        path = PathRegistry.coerce((umapper, umapper.attrs.addresses,
-                                amapper, amapper.attrs.email_address))
+        path = PathRegistry.coerce(
+            (
+                umapper,
+                umapper.attrs.addresses,
+                amapper,
+                amapper.attrs.email_address,
+            )
+        )
         is_(path[0], umapper)
         is_(path[2], amapper)
 
     def test_indexed_key(self):
         umapper = inspect(self.classes.User)
         amapper = inspect(self.classes.Address)
-        path = PathRegistry.coerce((umapper, umapper.attrs.addresses,
-                                amapper, amapper.attrs.email_address))
+        path = PathRegistry.coerce(
+            (
+                umapper,
+                umapper.attrs.addresses,
+                amapper,
+                amapper.attrs.email_address,
+            )
+        )
         eq_(path[1], umapper.attrs.addresses)
         eq_(path[3], amapper.attrs.email_address)
 
     def test_slice(self):
         umapper = inspect(self.classes.User)
         amapper = inspect(self.classes.Address)
-        path = PathRegistry.coerce((umapper, umapper.attrs.addresses,
-                                amapper, amapper.attrs.email_address))
+        path = PathRegistry.coerce(
+            (
+                umapper,
+                umapper.attrs.addresses,
+                amapper,
+                amapper.attrs.email_address,
+            )
+        )
         eq_(path[1:3], (umapper.attrs.addresses, amapper))
 
     def test_addition(self):
@@ -410,8 +621,14 @@ class PathRegistryTest(_fixtures.FixtureTest):
         p2 = PathRegistry.coerce((amapper, amapper.attrs.email_address))
         eq_(
             p1 + p2,
-            PathRegistry.coerce((umapper, umapper.attrs.addresses,
-                                amapper, amapper.attrs.email_address))
+            PathRegistry.coerce(
+                (
+                    umapper,
+                    umapper.attrs.addresses,
+                    amapper,
+                    amapper.attrs.email_address,
+                )
+            ),
         )
 
     def test_length(self):
@@ -421,8 +638,14 @@ class PathRegistryTest(_fixtures.FixtureTest):
         p0 = PathRegistry.coerce((umapper,))
         p1 = PathRegistry.coerce((umapper, umapper.attrs.addresses))
         p2 = PathRegistry.coerce((umapper, umapper.attrs.addresses, amapper))
-        p3 = PathRegistry.coerce((umapper, umapper.attrs.addresses,
-                                amapper, amapper.attrs.email_address))
+        p3 = PathRegistry.coerce(
+            (
+                umapper,
+                umapper.attrs.addresses,
+                amapper,
+                amapper.attrs.email_address,
+            )
+        )
 
         eq_(len(pneg1), 0)
         eq_(len(p0), 1)
@@ -444,11 +667,19 @@ class PathRegistryTest(_fixtures.FixtureTest):
         p3 = PathRegistry.coerce((umapper, umapper.attrs.name))
         p4 = PathRegistry.coerce((u_alias, umapper.attrs.addresses))
         p5 = PathRegistry.coerce((umapper, umapper.attrs.addresses, amapper))
-        p6 = PathRegistry.coerce((amapper, amapper.attrs.user, umapper,
-                                umapper.attrs.addresses))
-        p7 = PathRegistry.coerce((amapper, amapper.attrs.user, umapper,
-                                umapper.attrs.addresses,
-                                amapper, amapper.attrs.email_address))
+        p6 = PathRegistry.coerce(
+            (amapper, amapper.attrs.user, umapper, umapper.attrs.addresses)
+        )
+        p7 = PathRegistry.coerce(
+            (
+                amapper,
+                amapper.attrs.user,
+                umapper,
+                umapper.attrs.addresses,
+                amapper,
+                amapper.attrs.email_address,
+            )
+        )
 
         is_(p1 == p2, True)
         is_(p1 == p3, False)
@@ -461,6 +692,31 @@ class PathRegistryTest(_fixtures.FixtureTest):
         is_(p1 != p3, True)
         is_(p1 != p4, True)
         is_(p1 != p5, True)
+
+    def test_eq_non_path(self):
+        umapper = inspect(self.classes.User)
+        amapper = inspect(self.classes.Address)
+        u_alias = inspect(aliased(self.classes.User))
+        p1 = PathRegistry.coerce((umapper,))
+        p2 = PathRegistry.coerce((umapper, umapper.attrs.addresses))
+        p3 = PathRegistry.coerce((u_alias, umapper.attrs.addresses))
+        p4 = PathRegistry.coerce((u_alias, umapper.attrs.addresses, amapper))
+        p5 = PathRegistry.coerce((u_alias,)).token(":*")
+
+        non_object = 54.1432
+
+        for obj in [p1, p2, p3, p4, p5]:
+            with expect_warnings(
+                "Comparison of PathRegistry to "
+                "<.* 'float'> is not supported"
+            ):
+                is_(obj == non_object, False)
+
+            with expect_warnings(
+                "Comparison of PathRegistry to "
+                "<.* 'float'> is not supported"
+            ):
+                is_(obj != non_object, True)
 
     def test_contains_mapper(self):
         umapper = inspect(self.classes.User)
@@ -477,15 +733,9 @@ class PathRegistryTest(_fixtures.FixtureTest):
         p2 = PathRegistry.coerce((umapper, umapper.attrs.addresses, amapper))
         p3 = PathRegistry.coerce((amapper, amapper.attrs.email_address))
 
-        eq_(
-            p1.path, (umapper, umapper.attrs.addresses)
-        )
-        eq_(
-            p2.path, (umapper, umapper.attrs.addresses, amapper)
-        )
-        eq_(
-            p3.path, (amapper, amapper.attrs.email_address)
-        )
+        eq_(p1.path, (umapper, umapper.attrs.addresses))
+        eq_(p2.path, (umapper, umapper.attrs.addresses, amapper))
+        eq_(p3.path, (amapper, amapper.attrs.email_address))
 
     def test_registry_set(self):
         reg = {}
@@ -502,10 +752,10 @@ class PathRegistryTest(_fixtures.FixtureTest):
         eq_(
             reg,
             {
-                ('p1key', p1.path): 'p1value',
-                ('p2key', p2.path): 'p2value',
-                ('p3key', p3.path): 'p3value',
-            }
+                ("p1key", p1.path): "p1value",
+                ("p2key", p2.path): "p2value",
+                ("p3key", p3.path): "p3value",
+            },
         )
 
     def test_registry_get(self):
@@ -518,9 +768,9 @@ class PathRegistryTest(_fixtures.FixtureTest):
         p3 = PathRegistry.coerce((amapper, amapper.attrs.email_address))
         reg.update(
             {
-                ('p1key', p1.path): 'p1value',
-                ('p2key', p2.path): 'p2value',
-                ('p3key', p3.path): 'p3value',
+                ("p1key", p1.path): "p1value",
+                ("p2key", p2.path): "p2value",
+                ("p3key", p3.path): "p3value",
             }
         )
 
@@ -540,9 +790,9 @@ class PathRegistryTest(_fixtures.FixtureTest):
         p3 = PathRegistry.coerce((amapper, amapper.attrs.email_address))
         reg.update(
             {
-                ('p1key', p1.path): 'p1value',
-                ('p2key', p2.path): 'p2value',
-                ('p3key', p3.path): 'p3value',
+                ("p1key", p1.path): "p1value",
+                ("p2key", p2.path): "p2value",
+                ("p3key", p3.path): "p3value",
             }
         )
         assert p1.contains(reg, "p1key")
@@ -557,11 +807,7 @@ class PathRegistryTest(_fixtures.FixtureTest):
 
         p1 = PathRegistry.coerce((umapper, umapper.attrs.addresses))
         p2 = PathRegistry.coerce((umapper, umapper.attrs.addresses, amapper))
-        reg.update(
-            {
-                ('p1key', p1.path): 'p1value',
-            }
-        )
+        reg.update({("p1key", p1.path): "p1value"})
 
         p1.setdefault(reg, "p1key", "p1newvalue_a")
         p1.setdefault(reg, "p1key_new", "p1newvalue_b")
@@ -569,10 +815,10 @@ class PathRegistryTest(_fixtures.FixtureTest):
         eq_(
             reg,
             {
-                ('p1key', p1.path): 'p1value',
-                ('p1key_new', p1.path): 'p1newvalue_b',
-                ('p2key', p2.path): 'p2newvalue',
-            }
+                ("p1key", p1.path): "p1value",
+                ("p1key_new", p1.path): "p1newvalue_b",
+                ("p2key", p2.path): "p2newvalue",
+            },
         )
 
     def test_serialize(self):
@@ -581,21 +827,74 @@ class PathRegistryTest(_fixtures.FixtureTest):
         umapper = inspect(self.classes.User)
         amapper = inspect(self.classes.Address)
 
-        p1 = PathRegistry.coerce((umapper, umapper.attrs.addresses, amapper,
-                            amapper.attrs.email_address))
+        p1 = PathRegistry.coerce(
+            (
+                umapper,
+                umapper.attrs.addresses,
+                amapper,
+                amapper.attrs.email_address,
+            )
+        )
         p2 = PathRegistry.coerce((umapper, umapper.attrs.addresses, amapper))
         p3 = PathRegistry.coerce((umapper, umapper.attrs.addresses))
+        eq_(p1.serialize(), [(User, "addresses"), (Address, "email_address")])
+        eq_(p2.serialize(), [(User, "addresses"), (Address, None)])
+        eq_(p3.serialize(), [(User, "addresses")])
+
+    def test_serialize_context_dict(self):
+        reg = util.OrderedDict()
+        umapper = inspect(self.classes.User)
+        amapper = inspect(self.classes.Address)
+
+        p1 = PathRegistry.coerce((umapper, umapper.attrs.addresses))
+        p2 = PathRegistry.coerce((umapper, umapper.attrs.addresses, amapper))
+        p3 = PathRegistry.coerce((amapper, amapper.attrs.email_address))
+
+        p1.set(reg, "p1key", "p1value")
+        p2.set(reg, "p2key", "p2value")
+        p3.set(reg, "p3key", "p3value")
         eq_(
-            p1.serialize(),
-            [(User, "addresses"), (Address, "email_address")]
+            reg,
+            {
+                ("p1key", p1.path): "p1value",
+                ("p2key", p2.path): "p2value",
+                ("p3key", p3.path): "p3value",
+            },
+        )
+
+        serialized = PathRegistry.serialize_context_dict(
+            reg, ("p1key", "p2key")
         )
         eq_(
-            p2.serialize(),
-            [(User, "addresses"), (Address, None)]
+            serialized,
+            [
+                (("p1key", p1.serialize()), "p1value"),
+                (("p2key", p2.serialize()), "p2value"),
+            ],
         )
+
+    def test_deseralize_context_dict(self):
+        umapper = inspect(self.classes.User)
+        amapper = inspect(self.classes.Address)
+
+        p1 = PathRegistry.coerce((umapper, umapper.attrs.addresses))
+        p2 = PathRegistry.coerce((umapper, umapper.attrs.addresses, amapper))
+        p3 = PathRegistry.coerce((amapper, amapper.attrs.email_address))
+
+        serialized = [
+            (("p1key", p1.serialize()), "p1value"),
+            (("p2key", p2.serialize()), "p2value"),
+            (("p3key", p3.serialize()), "p3value"),
+        ]
+        deserialized = PathRegistry.deserialize_context_dict(serialized)
+
         eq_(
-            p3.serialize(),
-            [(User, "addresses")]
+            deserialized,
+            {
+                ("p1key", p1.path): "p1value",
+                ("p2key", p2.path): "p2value",
+                ("p3key", p3.path): "p3value",
+            },
         )
 
     def test_deseralize(self):
@@ -604,29 +903,32 @@ class PathRegistryTest(_fixtures.FixtureTest):
         umapper = inspect(self.classes.User)
         amapper = inspect(self.classes.Address)
 
-
-        p1 = PathRegistry.coerce((umapper, umapper.attrs.addresses, amapper,
-                            amapper.attrs.email_address))
+        p1 = PathRegistry.coerce(
+            (
+                umapper,
+                umapper.attrs.addresses,
+                amapper,
+                amapper.attrs.email_address,
+            )
+        )
         p2 = PathRegistry.coerce((umapper, umapper.attrs.addresses, amapper))
         p3 = PathRegistry.coerce((umapper, umapper.attrs.addresses))
 
         eq_(
-            PathRegistry.deserialize([(User, "addresses"),
-                        (Address, "email_address")]),
-            p1
+            PathRegistry.deserialize(
+                [(User, "addresses"), (Address, "email_address")]
+            ),
+            p1,
         )
         eq_(
             PathRegistry.deserialize([(User, "addresses"), (Address, None)]),
-            p2
+            p2,
         )
-        eq_(
-            PathRegistry.deserialize([(User, "addresses")]),
-            p3
-        )
+        eq_(PathRegistry.deserialize([(User, "addresses")]), p3)
 
-from .inheritance import _poly_fixtures
+
 class PathRegistryInhTest(_poly_fixtures._Polymorphic):
-    run_setup_mappers = 'once'
+    run_setup_mappers = "once"
     run_inserts = None
     run_deletes = None
 
@@ -640,10 +942,7 @@ class PathRegistryInhTest(_poly_fixtures._Polymorphic):
 
         # given a mapper and an attribute on a subclass,
         # the path converts what you get to be against that subclass
-        eq_(
-            p1.path,
-            (emapper, emapper.attrs.machines)
-        )
+        eq_(p1.path, (emapper, emapper.attrs.machines))
 
     def test_plain_compound(self):
         Company = _poly_fixtures.Company
@@ -653,14 +952,20 @@ class PathRegistryInhTest(_poly_fixtures._Polymorphic):
         pmapper = inspect(Person)
         emapper = inspect(Engineer)
 
-        p1 = PathRegistry.coerce((cmapper, cmapper.attrs.employees,
-                        pmapper, emapper.attrs.machines))
+        p1 = PathRegistry.coerce(
+            (cmapper, cmapper.attrs.employees, pmapper, emapper.attrs.machines)
+        )
 
         # given a mapper and an attribute on a subclass,
         # the path converts what you get to be against that subclass
         eq_(
             p1.path,
-            (cmapper, cmapper.attrs.employees, emapper, emapper.attrs.machines)
+            (
+                cmapper,
+                cmapper.attrs.employees,
+                emapper,
+                emapper.attrs.machines,
+            ),
         )
 
     def test_plain_aliased(self):
@@ -674,10 +979,7 @@ class PathRegistryInhTest(_poly_fixtures._Polymorphic):
         p1 = PathRegistry.coerce((p_alias, emapper.attrs.machines))
         # plain AliasedClass - the path keeps that AliasedClass directly
         # as is in the path
-        eq_(
-            p1.path,
-            (p_alias, emapper.attrs.machines)
-        )
+        eq_(p1.path, (p_alias, emapper.attrs.machines))
 
     def test_plain_aliased_compound(self):
         Company = _poly_fixtures.Company
@@ -692,34 +994,200 @@ class PathRegistryInhTest(_poly_fixtures._Polymorphic):
         c_alias = inspect(c_alias)
         p_alias = inspect(p_alias)
 
-        p1 = PathRegistry.coerce((c_alias, cmapper.attrs.employees,
-                    p_alias, emapper.attrs.machines))
+        p1 = PathRegistry.coerce(
+            (c_alias, cmapper.attrs.employees, p_alias, emapper.attrs.machines)
+        )
         # plain AliasedClass - the path keeps that AliasedClass directly
         # as is in the path
         eq_(
             p1.path,
-            (c_alias, cmapper.attrs.employees, p_alias, emapper.attrs.machines)
+            (
+                c_alias,
+                cmapper.attrs.employees,
+                p_alias,
+                emapper.attrs.machines,
+            ),
         )
 
     def test_with_poly_sub(self):
+        Company = _poly_fixtures.Company
         Person = _poly_fixtures.Person
         Engineer = _poly_fixtures.Engineer
         emapper = inspect(Engineer)
+        cmapper = inspect(Company)
 
         p_poly = with_polymorphic(Person, [Engineer])
-        e_poly = inspect(p_poly.Engineer)
-        p_poly = inspect(p_poly)
+        e_poly_insp = inspect(p_poly.Engineer)  # noqa - used by comment below
+        p_poly_insp = inspect(p_poly)
 
-        p1 = PathRegistry.coerce((p_poly, emapper.attrs.machines))
+        p1 = PathRegistry.coerce((p_poly_insp, emapper.attrs.machines))
 
-        # polymorphic AliasedClass - the path uses _entity_for_mapper()
-        # to get the most specific sub-entity
+        # changes as of #5082: when a with_polymorphic is in the middle
+        # of a path, the natural path makes sure it uses the base mappers,
+        # however when it's at the root, the with_polymorphic stays in
+        # the natural path
+
+        # this behavior is the same as pre #5082, it was temporarily changed
+        # but this proved to be incorrect.   The path starts on a
+        # with_polymorphic(), so a Query will "naturally" construct a path
+        # that comes from that wp.
+        eq_(p1.path, (e_poly_insp, emapper.attrs.machines))
+        eq_(p1.natural_path, (e_poly_insp, emapper.attrs.machines))
+
+        # this behavior is new as of the final version of #5082.
+        # the path starts on a normal entity and has a with_polymorphic
+        # in the middle, for this to match what Query will generate it needs
+        # to use the non aliased mappers in the natural path.
+        p2 = PathRegistry.coerce(
+            (
+                cmapper,
+                cmapper.attrs.employees,
+                p_poly_insp,
+                emapper.attrs.machines,
+            )
+        )
         eq_(
-            p1.path,
-            (e_poly, emapper.attrs.machines)
+            p2.path,
+            (
+                cmapper,
+                cmapper.attrs.employees,
+                e_poly_insp,
+                emapper.attrs.machines,
+            ),
+        )
+        eq_(
+            p2.natural_path,
+            (
+                cmapper,
+                cmapper.attrs.employees,
+                emapper,
+                emapper.attrs.machines,
+            ),
         )
 
-    def test_with_poly_base(self):
+    def test_with_poly_base_two(self):
+        Company = _poly_fixtures.Company
+        Person = _poly_fixtures.Person
+        Engineer = _poly_fixtures.Engineer
+        cmapper = inspect(Company)
+        pmapper = inspect(Person)
+
+        p_poly = with_polymorphic(Person, [Engineer])
+        e_poly_insp = inspect(p_poly.Engineer)  # noqa - used by comment below
+        p_poly_insp = inspect(p_poly)
+
+        p1 = PathRegistry.coerce(
+            (
+                cmapper,
+                cmapper.attrs.employees,
+                p_poly_insp,
+                pmapper.attrs.paperwork,
+            )
+        )
+
+        eq_(
+            p1.path,
+            (
+                cmapper,
+                cmapper.attrs.employees,
+                p_poly_insp,
+                pmapper.attrs.paperwork,
+            ),
+        )
+        eq_(
+            p1.natural_path,
+            (
+                cmapper,
+                cmapper.attrs.employees,
+                pmapper,
+                pmapper.attrs.paperwork,
+            ),
+        )
+
+    def test_nonpoly_oftype_aliased_subclass_onroot(self):
+        Engineer = _poly_fixtures.Engineer
+        eng_alias = aliased(Engineer)
+        ea_insp = inspect(eng_alias)
+
+        p1 = PathRegistry.coerce((ea_insp, ea_insp.mapper.attrs.paperwork))
+
+        eq_(p1.path, (ea_insp, ea_insp.mapper.attrs.paperwork))
+        eq_(p1.natural_path, (ea_insp, ea_insp.mapper.attrs.paperwork))
+
+    def test_nonpoly_oftype_aliased_subclass(self):
+        Company = _poly_fixtures.Company
+        Person = _poly_fixtures.Person
+        Engineer = _poly_fixtures.Engineer
+        cmapper = inspect(Company)
+        pmapper = inspect(Person)
+        eng_alias = aliased(Engineer)
+        ea_insp = inspect(eng_alias)
+
+        p1 = PathRegistry.coerce(
+            (
+                cmapper,
+                cmapper.attrs.employees,
+                ea_insp,
+                ea_insp.mapper.attrs.paperwork,
+            )
+        )
+
+        eq_(
+            p1.path,
+            (
+                cmapper,
+                cmapper.attrs.employees,
+                ea_insp,
+                ea_insp.mapper.attrs.paperwork,
+            ),
+        )
+        eq_(
+            p1.natural_path,
+            (
+                cmapper,
+                cmapper.attrs.employees,
+                pmapper,
+                pmapper.attrs.paperwork,
+            ),
+        )
+
+    def test_nonpoly_oftype_subclass(self):
+        Company = _poly_fixtures.Company
+        Person = _poly_fixtures.Person
+        Engineer = _poly_fixtures.Engineer
+        emapper = inspect(Engineer)
+        cmapper = inspect(Company)
+        pmapper = inspect(Person)
+
+        p1 = PathRegistry.coerce(
+            (
+                cmapper,
+                cmapper.attrs.employees,
+                emapper,
+                emapper.attrs.paperwork,
+            )
+        )
+
+        eq_(
+            p1.path,
+            (
+                cmapper,
+                cmapper.attrs.employees,
+                pmapper,
+                pmapper.attrs.paperwork,
+            ),
+        )
+        eq_(
+            p1.natural_path,
+            (
+                cmapper,
+                cmapper.attrs.employees,
+                pmapper,
+                pmapper.attrs.paperwork,
+            ),
+        )
+
+    def test_with_poly_base_one(self):
         Person = _poly_fixtures.Person
         Engineer = _poly_fixtures.Engineer
         pmapper = inspect(Person)
@@ -733,10 +1201,7 @@ class PathRegistryInhTest(_poly_fixtures._Polymorphic):
 
         # polymorphic AliasedClass - because "name" is on Person,
         # we get Person, not Engineer
-        eq_(
-            p1.path,
-            (p_poly, pmapper.attrs.name)
-        )
+        eq_(p1.path, (p_poly, pmapper.attrs.name))
 
     def test_with_poly_use_mapper(self):
         Person = _poly_fixtures.Person
@@ -750,8 +1215,4 @@ class PathRegistryInhTest(_poly_fixtures._Polymorphic):
 
         # polymorphic AliasedClass with the "use_mapper_path" flag -
         # the AliasedClass acts just like the base mapper
-        eq_(
-            p1.path,
-            (emapper, emapper.attrs.machines)
-        )
-
+        eq_(p1.path, (emapper, emapper.attrs.machines))

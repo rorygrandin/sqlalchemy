@@ -1,13 +1,17 @@
 # any kind of "*" pulls in __init__.pyc files,
 # so all extensions are explicit.
 
-recursive-include doc *.html *.css *.txt *.js *.jpg *.png *.py Makefile *.rst *.mako *.sty
+recursive-include doc *.html *.css *.txt *.js *.png *.py Makefile *.rst *.sty
 recursive-include examples *.py *.xml
-recursive-include test *.py *.dat
+recursive-include test *.py *.dat *.testpatch
 
 # include the c extensions, which otherwise
 # don't come in if --with-cextensions isn't specified.
 recursive-include lib *.c *.txt
 
-include README* AUTHORS LICENSE distribute_setup.py sa2to3.py ez_setup.py sqla_nose.py CHANGES* tox.ini
+include README* AUTHORS LICENSE CHANGES* tox.ini
 prune doc/build/output
+
+# don't include pyproject.toml until we
+# have explicitly built a pep-517 backend
+exclude pyproject.toml

@@ -1,23 +1,13 @@
-.. module:: sqlalchemy.orm
+.. currentmodule:: sqlalchemy.orm
 
 .. _mapper_composite:
 
 Composite Column Types
-=======================
+======================
 
 Sets of columns can be associated with a single user-defined datatype. The ORM
 provides a single attribute which represents the group of columns using the
 class you provide.
-
-.. versionchanged:: 0.7
-    Composites have been simplified such that
-    they no longer "conceal" the underlying column based attributes.  Additionally,
-    in-place mutation is no longer automatic; see the section below on
-    enabling mutability to support tracking of in-place changes.
-
-.. versionchanged:: 0.9
-    Composites will return their object-form, rather than as individual columns,
-    when used in a column-oriented :class:`.Query` construct.  See :ref:`migration_2824`.
 
 A simple example represents pairs of columns as a ``Point`` object.
 ``Point`` represents such a pair as ``.x`` and ``.y``::
@@ -31,12 +21,14 @@ A simple example represents pairs of columns as a ``Point`` object.
             return self.x, self.y
 
         def __repr__(self):
-            return "Point(x=%r, y=%r)" % (self.x, self.y)
+            return f"Point(x={self.x!r}, y={self.y!r})"
 
         def __eq__(self, other):
-            return isinstance(other, Point) and \
-                other.x == self.x and \
-                other.y == self.y
+            return (
+                isinstance(other, Point)
+                and other.x == self.x
+                and other.y == self.y
+            )
 
         def __ne__(self, other):
             return not self.__eq__(other)
@@ -49,18 +41,18 @@ also should supply adequate ``__eq__()`` and ``__ne__()`` methods which test
 the equality of two instances.
 
 We will create a mapping to a table ``vertices``, which represents two points
-as ``x1/y1`` and ``x2/y2``. These are created normally as :class:`.Column`
+as ``x1/y1`` and ``x2/y2``. These are created normally as :class:`_schema.Column`
 objects. Then, the :func:`.composite` function is used to assign new
 attributes that will represent sets of columns via the ``Point`` class::
 
     from sqlalchemy import Column, Integer
-    from sqlalchemy.orm import composite
-    from sqlalchemy.ext.declarative import declarative_base
+    from sqlalchemy.orm import composite, declarative_base
 
     Base = declarative_base()
 
+
     class Vertex(Base):
-        __tablename__ = 'vertices'
+        __tablename__ = "vertices"
 
         id = Column(Integer, primary_key=True)
         x1 = Column(Integer)
@@ -74,10 +66,14 @@ attributes that will represent sets of columns via the ``Point`` class::
 A classical mapping above would define each :func:`.composite`
 against the existing table::
 
-    mapper(Vertex, vertices_table, properties={
-        'start':composite(Point, vertices_table.c.x1, vertices_table.c.y1),
-        'end':composite(Point, vertices_table.c.x2, vertices_table.c.y2),
-    })
+    mapper_registry.map_imperatively(
+        Vertex,
+        vertices_table,
+        properties={
+            "start": composite(Point, vertices_table.c.x1, vertices_table.c.y1),
+            "end": composite(Point, vertices_table.c.x2, vertices_table.c.y2),
+        },
+    )
 
 We can now persist and use ``Vertex`` instances, as well as query for them,
 using the ``.start`` and ``.end`` attributes against ad-hoc ``Point`` instances:
@@ -115,11 +111,6 @@ via the usage of the :class:`.MutableComposite` mixin, which uses events
 to associate each user-defined composite object with all parent associations.
 Please see the example in :ref:`mutable_composites`.
 
-.. versionchanged:: 0.7
-    In-place changes to an existing composite value are no longer
-    tracked automatically; the functionality is superseded by the
-    :class:`.MutableComposite` class.
-
 .. _composite_operations:
 
 Redefining Comparison Operations for Composites
@@ -133,19 +124,27 @@ to define existing or new operations.
 Below we illustrate the "greater than" operator, implementing
 the same expression that the base "greater than" does::
 
-    from sqlalchemy.orm.properties import CompositeProperty
     from sqlalchemy import sql
+    from sqlalchemy.orm.properties import CompositeProperty
+
 
     class PointComparator(CompositeProperty.Comparator):
         def __gt__(self, other):
             """redefine the 'greater than' operation"""
 
-            return sql.and_(*[a>b for a, b in
-                              zip(self.__clause_element__().clauses,
-                                  other.__composite_values__())])
+            return sql.and_(
+                *[
+                    a > b
+                    for a, b in zip(
+                        self.__clause_element__().clauses,
+                        other.__composite_values__(),
+                    )
+                ]
+            )
+
 
     class Vertex(Base):
-        ___tablename__ = 'vertices'
+        ___tablename__ = "vertices"
 
         id = Column(Integer, primary_key=True)
         x1 = Column(Integer)
@@ -153,8 +152,79 @@ the same expression that the base "greater than" does::
         x2 = Column(Integer)
         y2 = Column(Integer)
 
-        start = composite(Point, x1, y1,
-                            comparator_factory=PointComparator)
-        end = composite(Point, x2, y2,
-                            comparator_factory=PointComparator)
+        start = composite(Point, x1, y1, comparator_factory=PointComparator)
+        end = composite(Point, x2, y2, comparator_factory=PointComparator)
 
+Nesting Composites
+-------------------
+
+Composite objects can be defined to work in simple nested schemes, by
+redefining behaviors within the composite class to work as desired, then
+mapping the composite class to the full length of individual columns normally.
+Typically, it is convenient to define separate constructors for user-defined
+use and generate-from-row use. Below we reorganize the ``Vertex`` class to
+itself be a composite object, which is then mapped to a class ``HasVertex``::
+
+    from sqlalchemy.orm import composite
+
+
+    class Point:
+        def __init__(self, x, y):
+            self.x = x
+            self.y = y
+
+        def __composite_values__(self):
+            return self.x, self.y
+
+        def __repr__(self):
+            return f"Point(x={self.x!r}, y={self.y!r})"
+
+        def __eq__(self, other):
+            return (
+                isinstance(other, Point)
+                and other.x == self.x
+                and other.y == self.y
+            )
+
+        def __ne__(self, other):
+            return not self.__eq__(other)
+
+
+    class Vertex:
+        def __init__(self, start, end):
+            self.start = start
+            self.end = end
+
+        @classmethod
+        def _generate(self, x1, y1, x2, y2):
+            """generate a Vertex from a row"""
+            return Vertex(Point(x1, y1), Point(x2, y2))
+
+        def __composite_values__(self):
+            return (
+                self.start.__composite_values__()
+                + self.end.__composite_values__()
+            )
+
+
+    class HasVertex(Base):
+        __tablename__ = "has_vertex"
+        id = Column(Integer, primary_key=True)
+        x1 = Column(Integer)
+        y1 = Column(Integer)
+        x2 = Column(Integer)
+        y2 = Column(Integer)
+
+        vertex = composite(Vertex._generate, x1, y1, x2, y2)
+
+We can then use the above mapping as::
+
+    hv = HasVertex(vertex=Vertex(Point(1, 2), Point(3, 4)))
+
+    s.add(hv)
+    s.commit()
+
+    hv = s.query(HasVertex).filter(
+        HasVertex.vertex == Vertex(Point(1, 2), Point(3, 4))).first()
+    print(hv.vertex.start)
+    print(hv.vertex.end)

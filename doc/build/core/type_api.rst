@@ -1,9 +1,9 @@
-.. module:: sqlalchemy.types
+.. currentmodule:: sqlalchemy.types
 
 .. _types_api:
 
 Base Type API
---------------
+-------------
 
 .. autoclass:: TypeEngine
    :members:
@@ -18,7 +18,8 @@ Base Type API
 
 .. autoclass:: NullType
 
+.. autoclass:: ExternalType
+    :members:
 
 .. autoclass:: Variant
-
    :members: with_variant, __init__

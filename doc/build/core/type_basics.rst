@@ -14,10 +14,9 @@ the database driver returns an incorrect type.
 .. code-block:: pycon
 
   >>> users = Table('users', metadata,
-  ...               Column('id', Integer, primary_key=True)
+  ...               Column('id', Integer, primary_key=True),
   ...               Column('login', String(32))
   ...              )
-
 
 SQLAlchemy will use the ``Integer`` and ``String(32)`` type
 information when issuing a ``CREATE TABLE`` statement and will use it
@@ -35,8 +34,8 @@ Generic types specify a column that can read, write and store a
 particular type of Python data.  SQLAlchemy will choose the best
 database column type available on the target database when issuing a
 ``CREATE TABLE`` statement.  For complete control over which column
-type is emitted in ``CREATE TABLE``, such as ``VARCHAR`` see `SQL
-Standard Types`_ and the other sections of this chapter.
+type is emitted in ``CREATE TABLE``, such as ``VARCHAR`` see
+:ref:`types_sqlstandard` and the other sections of this chapter.
 
 .. autoclass:: BigInteger
    :members:
@@ -210,17 +209,17 @@ Or some PostgreSQL types::
         Column('elements', postgresql.ARRAY(String))
     )
 
-Each dialect provides the full set of typenames supported by
-that backend within its `__all__` collection, so that a simple
-`import *` or similar will import all supported types as
-implemented for that backend::
+Each dialect provides the full set of database types supported by
+that backend within its own module, so they may all be used
+against the module directly without the need to differentiate between
+which types are specific to that backend or not::
 
-    from sqlalchemy.dialects.postgresql import *
+    from sqlalchemy.dialects import postgresql
 
     t = Table('mytable', metadata,
-               Column('id', INTEGER, primary_key=True),
-               Column('name', VARCHAR(300)),
-               Column('inetaddr', INET)
+               Column('id', postgresql.INTEGER, primary_key=True),
+               Column('name', postgresql.VARCHAR(300)),
+               Column('inetaddr', postgresql.INET)
     )
 
 Where above, the INTEGER and VARCHAR types are ultimately from
@@ -233,7 +232,7 @@ such as `collation` and `charset`::
 
     from sqlalchemy.dialects.mysql import VARCHAR, TEXT
 
-    table = Table('foo', meta,
+    table = Table('foo', metadata_obj,
         Column('col1', VARCHAR(200, collation='binary')),
         Column('col2', TEXT(charset='latin1'))
     )

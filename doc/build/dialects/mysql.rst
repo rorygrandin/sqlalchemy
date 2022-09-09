@@ -1,12 +1,20 @@
 .. _mysql_toplevel:
 
-MySQL
-=====
+MySQL and MariaDB
+=================
 
 .. automodule:: sqlalchemy.dialects.mysql.base
 
+MySQL SQL Constructs
+--------------------
+
+.. currentmodule:: sqlalchemy.dialects.mysql
+
+.. autoclass:: match
+    :members:
+
 MySQL Data Types
-------------------
+----------------
 
 As with all SQLAlchemy dialects, all UPPERCASE types that are known to be
 valid with MySQL are importable from the top level dialect::
@@ -21,6 +29,10 @@ valid with MySQL are importable from the top level dialect::
 Types which are specific to MySQL, or have MySQL-specific
 construction arguments, are as follows:
 
+.. note: where :noindex: is used, indicates a type that is not redefined
+   in the dialect module, just imported from sqltypes.  this avoids warnings
+   in the sphinx build
+
 .. currentmodule:: sqlalchemy.dialects.mysql
 
 .. autoclass:: BIGINT
@@ -28,6 +40,7 @@ construction arguments, are as follows:
 
 
 .. autoclass:: BINARY
+    :noindex:
     :members: __init__
 
 
@@ -37,10 +50,12 @@ construction arguments, are as follows:
 
 .. autoclass:: BLOB
     :members: __init__
+    :noindex:
 
 
 .. autoclass:: BOOLEAN
     :members: __init__
+    :noindex:
 
 
 .. autoclass:: CHAR
@@ -49,6 +64,7 @@ construction arguments, are as follows:
 
 .. autoclass:: DATE
     :members: __init__
+    :noindex:
 
 
 .. autoclass:: DATETIME
@@ -61,7 +77,7 @@ construction arguments, are as follows:
 
 .. autoclass:: DOUBLE
     :members: __init__
-
+    :noindex:
 
 .. autoclass:: ENUM
     :members: __init__
@@ -123,6 +139,7 @@ construction arguments, are as follows:
 
 .. autoclass:: TEXT
     :members: __init__
+    :noindex:
 
 
 .. autoclass:: TIME
@@ -147,6 +164,7 @@ construction arguments, are as follows:
 
 .. autoclass:: VARBINARY
     :members: __init__
+    :noindex:
 
 
 .. autoclass:: VARCHAR
@@ -156,43 +174,57 @@ construction arguments, are as follows:
 .. autoclass:: YEAR
     :members: __init__
 
+MySQL DML Constructs
+-------------------------
 
-MySQL-Python
---------------------
+.. autofunction:: sqlalchemy.dialects.mysql.insert
+
+.. autoclass:: sqlalchemy.dialects.mysql.Insert
+  :members:
+
+
+
+mysqlclient (fork of MySQL-Python)
+----------------------------------
 
 .. automodule:: sqlalchemy.dialects.mysql.mysqldb
 
-pymysql
--------------
+PyMySQL
+-------
 
 .. automodule:: sqlalchemy.dialects.mysql.pymysql
 
 MySQL-Connector
-----------------------
+---------------
 
 .. automodule:: sqlalchemy.dialects.mysql.mysqlconnector
 
+.. _asyncmy:
+
+asyncmy
+-------
+
+.. automodule:: sqlalchemy.dialects.mysql.asyncmy
+
+
+.. _aiomysql:
+
+aiomysql
+--------
+
+.. automodule:: sqlalchemy.dialects.mysql.aiomysql
+
 cymysql
-------------
+-------
 
 .. automodule:: sqlalchemy.dialects.mysql.cymysql
 
 OurSQL
---------------
+------
 
 .. automodule:: sqlalchemy.dialects.mysql.oursql
-
-Google App Engine
------------------------
-
-.. automodule:: sqlalchemy.dialects.mysql.gaerdbms
 
 pyodbc
 ------
 
 .. automodule:: sqlalchemy.dialects.mysql.pyodbc
-
-zxjdbc
---------------
-
-.. automodule:: sqlalchemy.dialects.mysql.zxjdbc

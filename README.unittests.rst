@@ -2,193 +2,168 @@
 SQLALCHEMY UNIT TESTS
 =====================
 
-**NOTE:** SQLAlchemy as of 0.9.4 now standardizes on `pytest <http://pytest.org/>`_
-for test running!  However, the existing support for Nose **still remains**!
-That is, you can now run the tests via pytest or nose.  We hope to keep the
-suite nose-compatible indefinitely however this might change at some point.
+Basic Test Running
+==================
 
-SQLAlchemy unit tests by default run using Python's built-in sqlite3
-module.   If running on a Python installation that doesn't include this
-module, then pysqlite or compatible must be installed.
+Tox is used to run the test suite fully.   For basic test runs against
+a single Python interpreter::
 
-Unit tests can be run with pytest or nose:
-
-    py.test: http://pytest.org/
-
-    nose: https://pypi.python.org/pypi/nose/
-
-The suite includes enhanced support when running with pytest.
-
-SQLAlchemy implements plugins for both pytest and nose that must be
-present when tests are run.   In the case of pytest, this plugin is automatically
-used when pytest is run against the SQLAlchemy source tree.  However,
-for Nose support, a special test runner script must be used.
+    tox
 
 
-The test suite as also requires the mock library.  While
-mock is part of the Python standard library as of 3.3, previous versions
-will need to have it installed, and is available at::
+Advanced Tox Options
+====================
 
-    https://pypi.python.org/pypi/mock
+For more elaborate CI-style test running, the tox script provided will
+run against various Python / database targets.   For a basic run against
+Python 3.8 using an in-memory SQLite database::
 
-RUNNING TESTS VIA SETUP.PY
---------------------------
-A plain vanilla run of all tests using sqlite can be run via setup.py, and
-requires that pytest is installed::
+    tox -e py38-sqlite
 
-    $ python setup.py test
+The tox runner contains a series of target combinations that can run
+against various combinations of databases.  The test suite can be
+run against SQLite with "backend" tests also running against a PostgreSQL
+database::
 
+    tox -e py38-sqlite-postgresql
 
-RUNNING ALL TESTS - PYTEST
---------------------------
-To run all tests::
+Or to run just "backend" tests against a MySQL database::
 
-    $ py.test
+    tox -e py38-mysql-backendonly
 
-The pytest configuration in setup.cfg will point the runner at the
-test/ directory, where it consumes a conftest.py file that gets everything
-else up and running.
+Running against backends other than SQLite requires that a database of that
+vendor be available at a specific URL.  See "Setting Up Databases" below
+for details.
 
+The pytest Engine
+=================
 
-RUNNING ALL TESTS - NOSE
---------------------------
+The tox runner is using pytest to invoke the test suite.   Within the realm of
+pytest, SQLAlchemy itself is adding a large series of option and
+customizations to the pytest runner using plugin points, to allow for
+SQLAlchemy's multiple database support, database setup/teardown and
+connectivity, multi process support, as well as lots of skip / database
+selection rules.
 
-When using Nose, a bootstrap script is provided which sets up sys.path
-as well as installs the nose plugin::
+Running tests with pytest directly grants more immediate control over
+database options and test selection.
 
-    $ ./sqla_nose.py
+A generic pytest run looks like::
 
-Assuming all tests pass, this is a very unexciting output.  To make it more
-interesting::
+    pytest -n4
 
-    $ ./sqla_nose.py -v
+Above, the full test suite will run against SQLite, using four processes.
+If the "-n" flag is not used, the pytest-xdist is skipped and the tests will
+run linearly, which will take a pretty long time.
 
-RUNNING INDIVIDUAL TESTS
----------------------------------
+The pytest command line is more handy for running subsets of tests and to
+quickly allow for custom database connections.  Example::
 
-Any directory of test modules can be run at once by specifying the directory
-path, and a specific file can be specified as well::
+    pytest --dburi=postgresql+psycopg2://scott:tiger@localhost/test  test/sql/test_query.py
 
-    $ py.test test/dialect
+Above will run the tests in the test/sql/test_query.py file (a pretty good
+file for basic "does this database work at all?" to start with) against a
+running PostgreSQL database at the given URL.
 
-    $ py.test test/orm/test_mapper.py
+The pytest frontend can also run tests against multiple kinds of databases at
+once - a large subset of tests are marked as "backend" tests, which will be run
+against each available backend, and additionally lots of tests are targeted at
+specific backends only, which only run if a matching backend is made available.
+For example, to run the test suite against both PostgreSQL and MySQL at the
+same time::
 
-When using nose, the setup.cfg currently sets "where" to "test/", so the
-"test/" prefix is omitted::
-
-    $ ./sqla_nose.py dialect/
-
-    $ ./sqla_nose.py orm/test_mapper.py
-
-With Nose, it is often more intuitive to specify tests as module paths::
-
-    $ ./sqla_nose.py test.orm.test_mapper
-
-Nose can also specify a test class and optional method using this syntax::
-
-    $ ./sqla_nose.py test.orm.test_mapper:MapperTest.test_utils
-
-With pytest, the -k flag is used to limit tests::
-
-    $ py.test test/orm/test_mapper.py -k "MapperTest and test_utils"
+    pytest -n4 --db postgresql --db mysql
 
 
-COMMAND LINE OPTIONS
---------------------
+Setting Up Databases
+====================
 
-SQLAlchemy-specific options are added to both runners, which are viewable
-within the help screen.  With pytest, these options are easier to locate
-as they are underneath the "sqlalchemy" grouping::
+The test suite identifies several built-in database tags that run against
+a pre-set URL.  These can be seen using --dbs::
 
-    $ py.test --help
-
-    $ ./sqla_nose.py --help
-
-The --help screen is a combination of common nose options and options which
-the SQLAlchemy nose plugin adds.  The most commonly SQLAlchemy-specific
-options used are '--db' and '--dburi'.
-
-Both pytest and nose support the same set of SQLAlchemy options, though
-pytest features a bit more capability with them.
-
-
-DATABASE TARGETS
-----------------
-
-Tests will target an in-memory SQLite database by default.  To test against
-another database, use the --dburi option with any standard SQLAlchemy URL::
-
-    --dburi=postgresql://user:password@localhost/test
-
-If you'll be running the tests frequently, database aliases can save a lot of
-typing.  The --dbs option lists the built-in aliases and their matching URLs::
-
-    $ py.test --dbs
+    $ pytest --dbs
     Available --db options (use --dburi to override)
-               mysql    mysql://scott:tiger@127.0.0.1:3306/test
-              oracle    oracle://scott:tiger@127.0.0.1:1521
-            postgresql    postgresql://scott:tiger@127.0.0.1:5432/test
-    [...]
+                 default    sqlite:///:memory:
+                firebird    firebird://sysdba:masterkey@localhost//Users/classic/foo.fdb
+                 mariadb    mariadb://scott:tiger@192.168.0.199:3307/test
+                   mssql    mssql+pyodbc://scott:tiger^5HHH@mssql2017:1433/test?driver=ODBC+Driver+13+for+SQL+Server
+           mssql_pymssql    mssql+pymssql://scott:tiger@ms_2008
+                   mysql    mysql://scott:tiger@127.0.0.1:3306/test?charset=utf8mb4
+                  oracle    oracle://scott:tiger@127.0.0.1:1521
+                 oracle8    oracle://scott:tiger@127.0.0.1:1521/?use_ansi=0
+                  pg8000    postgresql+pg8000://scott:tiger@127.0.0.1:5432/test
+              postgresql    postgresql://scott:tiger@127.0.0.1:5432/test
+    postgresql_psycopg2cffi postgresql+psycopg2cffi://scott:tiger@127.0.0.1:5432/test
+                 pymysql    mysql+pymysql://scott:tiger@127.0.0.1:3306/test?charset=utf8mb4
+                  sqlite    sqlite:///:memory:
+             sqlite_file    sqlite:///querytest.db
 
-To run tests against an aliased database::
+Note that a pyodbc URL **must be against a hostname / database name
+combination, not a DSN name** when using the multiprocessing option; this is
+because the test suite needs to generate new URLs to refer to per-process
+databases that are created on the fly.
 
-    $ py.test --db postgresql
+What those mean is that if you have a database running that can be accessed
+by the above URL, you can run the test suite against it using ``--db <name>``.
 
-This list of database urls is present in the setup.cfg file.   The list
-can be modified/extended by adding a file ``test.cfg`` at the
-top level of the SQLAlchemy source distribution which includes
-additional entries::
+The URLs are present in the ``setup.cfg`` file.   You can make your own URLs by
+creating a new file called ``test.cfg`` and adding your own ``[db]`` section::
 
+    # test.cfg file
     [db]
-    postgresql=postgresql://myuser:mypass@localhost/mydb
+    my_postgresql=postgresql://username:pass@hostname/dbname
 
-Your custom entries will override the defaults and you'll see them reflected
-in the output of --dbs.
+Above, we can now run the tests with ``my_postgresql``::
 
-MULTIPLE DATABASE TARGETS
--------------------------
+    pytest --db my_postgresql
 
-As of SQLAlchemy 0.9.4, the test runner supports **multiple databases at once**.
-This doesn't mean that the entire test suite runs for each database, but
-instead specific test suites may do so, while other tests may choose to
-run on a specific target out of those available.   For example, if the tests underneath
-test/dialect/ are run, the majority of these tests are either specific to
-a particular backend, or are marked as "multiple", meaning they will run repeatedly
-for each database in use.  If one runs the test suite as follows::
+We can also override the existing names in our ``test.cfg`` file, so that we can run
+with the tox runner also::
 
-    $ py.test test/dialect --db sqlite --db postgresql --db mysql
+    # test.cfg file
+    [db]
+    postgresql=postgresql://username:pass@hostname/dbname
 
-The tests underneath test/dialect/test_suite.py will be tripled up, running
-as appropriate for each target database, whereas dialect-specific tests
-within test/dialect/mysql, test/dialect/postgresql/ test/dialect/test_sqlite.py
-should run fully with no skips, as each suite has its target database available.
+Now when we run ``tox -e py27-postgresql``, it will use our custom URL instead
+of the fixed one in setup.cfg.
 
-The multiple targets feature is available both under pytest and nose,
-however when running nose, the "multiple runner" feature won't be available;
-instead, the first database target will be used.
+Database Configuration
+======================
 
-When running with multiple targets, tests that don't prefer a specific target
-will be run against the first target specified.  Putting sqlite first in
-the list will lead to a much faster suite as the in-memory database is
-extremely fast for setting up and tearing down tables.
+Step one, the **database chosen for tests must be entirely empty**.  A lot
+of what SQLAlchemy tests is creating and dropping lots of tables
+as well as running database introspection to see what is there.  If there
+are pre-existing tables or other objects in the target database already,
+these will get in the way.   A failed test run can also be followed by
+ a run that includes the "--dropfirst" option, which will try to drop
+all existing tables in the target database.
 
+The above paragraph changes somewhat when the multiprocessing option
+is used, in that separate databases will be created instead, however
+in the case of Postgresql, the starting database is used as a template,
+so the starting database must still be empty.  See below for example
+configurations using docker.
 
-
-DATABASE CONFIGURATION
-----------------------
-
-Use an empty database and a database user with general DBA privileges.
-The test suite will be creating and dropping many tables and other DDL, and
-preexisting tables will interfere with the tests.
+The test runner will by default create and drop tables within the default
+database that's in the database URL, *unless* the multiprocessing option is in
+use via the pytest "-n" flag, which invokes pytest-xdist.   The
+multiprocessing option is **enabled by default** when using the tox runner.
+When multiprocessing is used, the SQLAlchemy testing framework will create a
+new database for each process, and then tear it down after the test run is
+complete.    So it will be necessary for the database user to have access to
+CREATE DATABASE in order for this to work.   Additionally, as mentioned
+earlier, the database URL must be formatted such that it can be rewritten on
+the fly to refer to these other databases, which means for pyodbc it must refer
+to a hostname/database name combination, not a DSN name.
 
 Several tests require alternate usernames or schemas to be present, which
 are used to test dotted-name access scenarios.  On some databases such
-as Oracle or Sybase, these are usernames, and others such as PostgreSQL
+as Oracle these are usernames, and others such as PostgreSQL
 and MySQL they are schemas.   The requirement applies to all backends
 except SQLite and Firebird.  The names are::
 
     test_schema
-    test_schema_2 (only used on PostgreSQL)
+    test_schema_2 (only used on PostgreSQL and mssql)
 
 Please refer to your vendor documentation for the proper syntax to create
 these namespaces - the database user must have permission to create and drop
@@ -210,10 +185,20 @@ Additional steps specific to individual databases are as follows::
         test=# create extension hstore;
         CREATE EXTENSION
 
-    MYSQL: Default storage engine should be "MyISAM".   Tests that require
-    "InnoDB" as the engine will specify this explicitly.
+    Full-text search configuration should be set to English, else
+    several tests of ``.match()`` will fail. This can be set (if it isn't so
+    already) with:
 
-    ORACLE: a user named "test_schema" is created.
+     ALTER DATABASE test SET default_text_search_config = 'pg_catalog.english'
+
+    For two-phase transaction support, the max_prepared_transactions
+    configuration variable must be set to a non-zero value in postgresql.conf.
+    See
+    https://www.postgresql.org/docs/current/runtime-config-resource.html#GUC-MAX-PREPARED-TRANSACTIONS
+    for further background.
+
+    ORACLE: a user named "test_schema" is created in addition to the default
+    user.
 
     The primary database user needs to be able to create and drop tables,
     synonyms, and constraints within the "test_schema" user.   For this
@@ -222,31 +207,6 @@ Additional steps specific to individual databases are as follows::
     it is required that the test the user be present in the "DBA" role:
 
         grant dba to scott;
-
-    SYBASE: Similar to Oracle, "test_schema" is created as a user, and the
-    primary test user needs to have the "sa_role".
-
-    It's also recommended to turn on "trunc log on chkpt" and to use a
-    separate transaction log device - Sybase basically seizes up when
-    the transaction log is full otherwise.
-
-    A full series of setup assuming sa/master:
-
-        disk init name="translog", physname="/opt/sybase/data/translog.dat", size="10M"
-        create database sqlalchemy on default log on translog="10M"
-        sp_dboption sqlalchemy, "trunc log on chkpt", true
-        sp_addlogin scott, "tiger7"
-        sp_addlogin test_schema, "tiger7"
-        use sqlalchemy
-        sp_adduser scott
-        sp_adduser test_schema
-        grant all to scott
-        sp_role "grant", sa_role, scott
-
-    Sybase will still freeze for up to a minute when the log becomes
-    full.  To manually dump the log::
-
-        dump tran sqlalchemy with truncate_only
 
     MSSQL: Tests that involve multiple connections require Snapshot Isolation
     ability implemented on the test database in order to prevent deadlocks that
@@ -258,16 +218,73 @@ Additional steps specific to individual databases are as follows::
 
      ALTER DATABASE MyDatabase SET READ_COMMITTED_SNAPSHOT ON
 
-    MSSQL+zxJDBC: Trying to run the unit tests on Windows against SQL Server
-    requires using a test.cfg configuration file as the cmd.exe shell won't
-    properly pass the URL arguments into the nose test runner.
+Docker Configurations
+---------------------
 
-    POSTGRESQL: Full-text search configuration should be set to English, else
-    several tests of ``.match()`` will fail. This can be set (if it isn't so
-    already) with:
+The SQLAlchemy test can run against database running in Docker containers.
+This ensures that they are empty and that their configuration is not influenced
+by any local usage.
 
-     ALTER DATABASE test SET default_text_search_config = 'pg_catalog.english'
+The following configurations are just examples that developers can use to
+quickly set up a local environment for SQLAlchemy development. They are **NOT**
+intended for production use!
 
+**PostgreSQL configuration**::
+
+    # create the container with the proper configuration for sqlalchemy
+    docker run --rm -e POSTGRES_USER='scott' -e POSTGRES_PASSWORD='tiger' -e POSTGRES_DB='test' -p 127.0.0.1:5432:5432 -d --name postgres postgres
+
+    # configure the database
+    sleep 10
+    docker exec -ti postgres psql -U scott -c 'CREATE SCHEMA test_schema; CREATE SCHEMA test_schema_2;' test
+    # this last command is optional
+    docker exec -ti postgres sed -i 's/#max_prepared_transactions = 0/max_prepared_transactions = 10/g' /var/lib/postgresql/data/postgresql.conf
+
+    # To stop the container. It will also remove it.
+    docker stop postgres
+
+**MySQL configuration**::
+
+    # create the container with the proper configuration for sqlalchemy
+    docker run --rm -e MYSQL_USER='scott' -e MYSQL_PASSWORD='tiger' -e MYSQL_DATABASE='test' -e MYSQL_ROOT_PASSWORD='password' -p 127.0.0.1:3306:3306 -d --name mysql mysql --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+    # configure the database
+    sleep 20
+    docker exec -ti mysql mysql -u root -ppassword -w -e "CREATE DATABASE test_schema CHARSET utf8mb4; GRANT ALL ON test_schema.* TO scott;"
+
+    # To stop the container. It will also remove it.
+    docker stop mysql
+
+**MariaDB configuration**::
+
+    # create the container with the proper configuration for sqlalchemy
+    docker run --rm -e MARIADB_USER='scott' -e MARIADB_PASSWORD='tiger' -e MARIADB_DATABASE='test' -e MARIADB_ROOT_PASSWORD='password' -p 127.0.0.1:3306:3306 -d --name mariadb mariadb --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+    # configure the database
+    sleep 20
+    docker exec -ti mariadb mysql -u root -ppassword -w -e "CREATE DATABASE test_schema CHARSET utf8mb4; GRANT ALL ON test_schema.* TO scott;"
+
+    # To stop the container. It will also remove it.
+    docker stop mariadb
+
+**MSSQL configuration**::
+
+    # create the container with the proper configuration for sqlalchemy
+    # it will use the Developer version
+    docker run --rm -e 'ACCEPT_EULA=Y' -e 'SA_PASSWORD=yourStrong(!)Password' -p 127.0.0.1:1433:1433 -d --name mssql mcr.microsoft.com/mssql/server
+
+    # configure the database
+    sleep 20
+    docker exec -it mssql /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'yourStrong(!)Password' -Q "sp_configure 'contained database authentication', 1; RECONFIGURE; CREATE DATABASE test CONTAINMENT = PARTIAL; ALTER DATABASE test SET ALLOW_SNAPSHOT_ISOLATION ON; ALTER DATABASE test SET READ_COMMITTED_SNAPSHOT ON; CREATE LOGIN scott WITH PASSWORD = 'tiger^5HHH'; ALTER SERVER ROLE sysadmin ADD MEMBER scott;"
+    docker exec -it mssql /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'yourStrong(!)Password' -d test -Q "CREATE SCHEMA test_schema"
+    docker exec -it mssql /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'yourStrong(!)Password' -d test -Q "CREATE SCHEMA test_schema_2"
+
+    # To stop the container. It will also remove it.
+    docker stop mssql
+
+NOTE: with this configuration the url to use is not the default one configured
+in setup, but ``mssql+pymssql://scott:tiger^5HHH@127.0.0.1:1433/test``.  It can
+be used with pytest by using ``--db docker_mssql``.
 
 CONFIGURING LOGGING
 -------------------
@@ -275,24 +292,11 @@ SQLAlchemy logs its activity and debugging through Python's logging package.
 Any log target can be directed to the console with command line options, such
 as::
 
-    $ ./sqla_nose.py test.orm.unitofwork --log-info=sqlalchemy.orm.mapper \
+    $ ./pytest test/orm/test_unitofwork.py -s \
       --log-debug=sqlalchemy.pool --log-info=sqlalchemy.engine
 
-This would log mapper configuration, connection pool checkouts, and SQL
-statement execution.
+Above we add the pytest "-s" flag so that standard out is not suppressed.
 
-
-BUILT-IN COVERAGE REPORTING
-------------------------------
-Coverage is tracked using the coverage plugins built for pytest or nose::
-
-    $ py.test test/sql/test_query --cov=sqlalchemy
-
-    $ ./sqla_nose.py test.sql.test_query --with-coverage
-
-BIG COVERAGE TIP !!!  There is an issue where existing .pyc files may
-store the incorrect filepaths, which will break the coverage system.  If
-coverage numbers are coming out as low/zero, try deleting all .pyc files.
 
 DEVELOPING AND TESTING NEW DIALECTS
 -----------------------------------
@@ -300,41 +304,3 @@ DEVELOPING AND TESTING NEW DIALECTS
 See the file README.dialects.rst for detail on dialects.
 
 
-TESTING WITH MULTIPLE PYTHON VERSIONS USING TOX
------------------------------------------------
-
-If you want to test across multiple versions of Python, you may find `tox
-<http://tox.testrun.org/>`_ useful.  SQLAlchemy includes a tox.ini file::
-
-    tox -e full
-
-SQLAlchemy uses tox mostly for pre-fab testing configurations, to simplify
-configuration of Jenkins jobs, and *not* for testing different Python
-interpreters simultaneously.  You can of course create whatever alternate
-tox.ini file you want.
-
-Environments include::
-
-    "full" - runs a full py.test
-
-    "coverage" - runs a py.test plus coverage, skipping memory/timing
-    intensive tests
-
-    "pep8" - runs flake8 against the codebase (useful with --diff to check
-    against a patch)
-
-
-PARALLEL TESTING
-----------------
-
-Parallel testing is supported using the Pytest xdist plugin.   Supported
-databases currently include sqlite, postgresql, and mysql.  The username
-for the database should have CREATE DATABASE and DROP DATABASE privileges.
-After installing pytest-xdist, testing is run adding the -n<num> option.
-For example, to run against sqlite, mysql, postgresql with four processes::
-
-    tox -e -- -n 4 --db sqlite --db postgresql --db mysql
-
-Each backend has a different scheme for setting up the database.  PostgreSQL
-still needs the "test_schema" and "test_schema_2" schemas present, as the
-parallel databases are created using the base database as a "template".

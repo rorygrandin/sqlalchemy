@@ -1,42 +1,37 @@
-from sqlalchemy.testing import fixtures, AssertsExecutionResults, profiling
+from sqlalchemy import event
 from sqlalchemy.pool import QueuePool
-from sqlalchemy import pool as pool_module
+from sqlalchemy.testing import AssertsExecutionResults
+from sqlalchemy.testing import fixtures
+from sqlalchemy.testing import profiling
 
 pool = None
 
 
 class QueuePoolTest(fixtures.TestBase, AssertsExecutionResults):
-    __requires__ = 'cpython',
+    __requires__ = ("cpython", "python_profiling_backend")
 
     class Connection(object):
-
         def rollback(self):
             pass
 
         def close(self):
             pass
 
-    def teardown(self):
-        # the tests leave some fake connections
-        # around which don't necessarily
-        # get gc'ed as quickly as we'd like,
-        # on backends like pypy, python3.2
-        pool_module._refs.clear()
-
-    def setup(self):
+    def setup_test(self):
         # create a throwaway pool which
         # has the effect of initializing
         # class-level event listeners on Pool,
         # if not present already.
-        p1 = QueuePool(creator=self.Connection,
-                       pool_size=3, max_overflow=-1,
-                       use_threadlocal=True)
+        p1 = QueuePool(creator=self.Connection, pool_size=3, max_overflow=-1)
         p1.connect()
 
         global pool
-        pool = QueuePool(creator=self.Connection,
-                         pool_size=3, max_overflow=-1,
-                         use_threadlocal=True)
+        pool = QueuePool(creator=self.Connection, pool_size=3, max_overflow=-1)
+
+        # make this a real world case where we have a "connect" handler
+        @event.listens_for(pool, "connect")
+        def do_connect(dbapi_conn, conn_record):
+            pass
 
     @profiling.function_call_count()
     def test_first_connect(self):
@@ -50,13 +45,5 @@ class QueuePoolTest(fixtures.TestBase, AssertsExecutionResults):
         def go():
             conn2 = pool.connect()
             return conn2
-        go()
 
-    def test_second_samethread_connect(self):
-        conn = pool.connect()
-        conn  # strong ref
-
-        @profiling.function_call_count()
-        def go():
-            return pool.connect()
         go()

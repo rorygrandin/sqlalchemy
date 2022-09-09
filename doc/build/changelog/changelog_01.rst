@@ -1,7 +1,7 @@
 
-==============
+=============
 0.1 Changelog
-==============
+=============
 
                 
 .. changelog::
@@ -237,7 +237,7 @@
       created for a class, qualified by the entity name. instances of those classes
       will issue all of their load and save operations through their
       entity_name-qualified mapper, and maintain separate a identity in the identity
-      map for an otherwise equilvalent object.
+      map for an otherwise equivalent object.
 
     .. change::
         :tags: 
@@ -421,7 +421,7 @@
         :tags: 
         :tickets: 
 
-      added \*args, \**kwargs pass-thru to engine.transaction(func) allowing easier
+      added \*args, \**kwargs pass-through to engine.transaction(func) allowing easier
       creation of transactionalizing decorator functions
 
     .. change::
@@ -877,7 +877,7 @@
         :tags: 
         :tickets: 
 
-      began to implement newer logic in object properities.  you can now say
+      began to implement newer logic in object properties.  you can now say
       myclass.attr.property, which will give you the PropertyLoader corresponding to that
       attribute, i.e. myclass.mapper.props['attr']
 
@@ -943,7 +943,7 @@
         :tickets: 
 
       fix to engine.process_defaults so it works correctly with a table that has
-      different column name/column keys (changset 982)
+      different column name/column keys (changeset 982)
 
     .. change::
         :tags: 

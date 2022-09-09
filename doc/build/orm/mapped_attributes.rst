@@ -1,7 +1,9 @@
-.. module:: sqlalchemy.orm
+.. _mapping_attributes_toplevel:
+
+.. currentmodule:: sqlalchemy.orm
 
 Changing Attribute Behavior
-============================
+===========================
 
 .. _simple_validators:
 
@@ -25,7 +27,8 @@ issued when the ORM is populating the object::
 
         @validates('email')
         def validate_email(self, key, address):
-            assert '@' in address
+            if '@' not in address:
+                raise ValueError("failed simple email validation")
             return address
 
 .. versionchanged:: 1.0.0 - validators are no longer triggered within
@@ -46,7 +49,8 @@ collection::
 
         @validates('addresses')
         def validate_address(self, key, address):
-            assert '@' in address.email
+            if '@' not in address.email:
+                raise ValueError("failed simplified email validation")
             return address
 
 
@@ -70,7 +74,8 @@ argument which if ``True`` indicates that the operation is a removal::
                 raise ValueError(
                         "not allowed to remove items from the collection")
             else:
-                assert '@' in address.email
+                if '@' not in address.email:
+                    raise ValueError("failed simplified email validation")
                 return address
 
 The case where mutually dependent validators are linked via a backref
@@ -87,7 +92,8 @@ event occurs as a result of a backref::
 
         @validates('addresses', include_backrefs=False)
         def validate_address(self, key, address):
-            assert '@' in address.email
+            if '@' not in address:
+                raise ValueError("failed simplified email validation")
             return address
 
 Above, if we were to assign to ``Address.user`` as in ``some_address.user = some_user``,
@@ -100,6 +106,18 @@ configuration of attribute change behavior can make use of this system,
 described at :class:`~.AttributeEvents`.
 
 .. autofunction:: validates
+
+Using Custom Datatypes at the Core Level
+-----------------------------------------
+
+A non-ORM means of affecting the value of a column in a way that suits
+converting data between how it is represented in Python, vs. how it is
+represented in the database, can be achieved by using a custom datatype that is
+applied to the mapped :class:`_schema.Table` metadata.     This is more common in the
+case of some style of encoding / decoding that occurs both as data goes to the
+database and as it is returned; read more about this in the Core documentation
+at :ref:`types_typedecorator`.
+
 
 .. _mapper_hybrids:
 
@@ -135,7 +153,7 @@ The approach above will work, but there's more we can add. While our
 ``EmailAddress`` object will shuttle the value through the ``email``
 descriptor and into the ``_email`` mapped attribute, the class level
 ``EmailAddress.email`` attribute does not have the usual expression semantics
-usable with :class:`.Query`. To provide these, we instead use the
+usable with :class:`_query.Query`. To provide these, we instead use the
 :mod:`~sqlalchemy.ext.hybrid` extension as follows::
 
     from sqlalchemy.ext.hybrid import hybrid_property
@@ -242,6 +260,8 @@ to "mirror" another attribute that is mapped.
 In the most basic sense, the synonym is an easy way to make a certain
 attribute available by an additional name::
 
+    from sqlalchemy.orm import synonym
+    
     class MyClass(Base):
         __tablename__ = 'my_table'
 
@@ -331,7 +351,7 @@ which take place for column expressions are most directly redefined at the
 type level -  see the
 section :ref:`types_operators` for a description.
 
-ORM level functions like :func:`.column_property`, :func:`.relationship`,
+ORM level functions like :func:`.column_property`, :func:`_orm.relationship`,
 and :func:`.composite` also provide for operator redefinition at the ORM
 level, by passing a :class:`.PropComparator` subclass to the ``comparator_factory``
 argument of each function.  Customization of operators at this level is a

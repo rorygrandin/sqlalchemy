@@ -1,18 +1,37 @@
 """Test event registration and listening."""
 
-from sqlalchemy.testing import eq_, assert_raises, assert_raises_message, \
-    is_, is_not_
-from sqlalchemy import event, exc
-from sqlalchemy.testing import fixtures
-from sqlalchemy.testing.util import gc_collect
-from sqlalchemy.testing.mock import Mock, call
+from sqlalchemy import event
+from sqlalchemy import exc
 from sqlalchemy import testing
+from sqlalchemy.testing import assert_raises
+from sqlalchemy.testing import assert_raises_message
+from sqlalchemy.testing import eq_
+from sqlalchemy.testing import expect_deprecated
+from sqlalchemy.testing import expect_raises_message
+from sqlalchemy.testing import fixtures
+from sqlalchemy.testing import is_
+from sqlalchemy.testing import is_not
+from sqlalchemy.testing.mock import call
+from sqlalchemy.testing.mock import Mock
+from sqlalchemy.testing.util import gc_collect
 
 
-class EventsTest(fixtures.TestBase):
+class TearDownLocalEventsFixture(object):
+    def teardown_test(self):
+        classes = set()
+        for entry in event.base._registrars.values():
+            for evt_cls in entry:
+                if evt_cls.__module__ == __name__:
+                    classes.add(evt_cls)
+
+        for evt_cls in classes:
+            event.base._remove_dispatcher(evt_cls)
+
+
+class EventsTest(TearDownLocalEventsFixture, fixtures.TestBase):
     """Test class- and instance-level event registration."""
 
-    def setUp(self):
+    def setup_test(self):
         class TargetEvents(event.Events):
             def event_one(self, x, y):
                 pass
@@ -25,10 +44,8 @@ class EventsTest(fixtures.TestBase):
 
         class Target(object):
             dispatch = event.dispatcher(TargetEvents)
-        self.Target = Target
 
-    def tearDown(self):
-        event.base._remove_dispatcher(self.Target.__dict__['dispatch'].events)
+        self.Target = Target
 
     def test_register_class(self):
         def listen(x, y):
@@ -54,6 +71,7 @@ class EventsTest(fixtures.TestBase):
     def test_bool_clslevel(self):
         def listen_one(x, y):
             pass
+
         event.listen(self.Target, "event_one", listen_one)
         t = self.Target()
         assert t.dispatch.event_one
@@ -98,7 +116,7 @@ class EventsTest(fixtures.TestBase):
 
         eq_(
             list(self.Target().dispatch.event_one),
-            [listen_three, listen_one, listen_two]
+            [listen_three, listen_one, listen_two],
         )
 
     def test_append_vs_insert_instance(self):
@@ -118,7 +136,7 @@ class EventsTest(fixtures.TestBase):
 
         eq_(
             list(target.dispatch.event_one),
-            [listen_three, listen_one, listen_two]
+            [listen_three, listen_one, listen_two],
         )
 
     def test_decorator(self):
@@ -131,45 +149,154 @@ class EventsTest(fixtures.TestBase):
         def listen_two(x, y):
             pass
 
-        eq_(
-            list(self.Target().dispatch.event_one),
-            [listen_one]
-        )
+        eq_(list(self.Target().dispatch.event_one), [listen_one])
 
-        eq_(
-            list(self.Target().dispatch.event_two),
-            [listen_two]
-        )
+        eq_(list(self.Target().dispatch.event_two), [listen_two])
 
-        eq_(
-            list(self.Target().dispatch.event_three),
-            [listen_two]
-        )
+        eq_(list(self.Target().dispatch.event_three), [listen_two])
 
     def test_no_instance_level_collections(self):
         @event.listens_for(self.Target, "event_one")
         def listen_one(x, y):
             pass
+
         t1 = self.Target()
         t2 = self.Target()
         t1.dispatch.event_one(5, 6)
         t2.dispatch.event_one(5, 6)
         is_(
-            self.Target.dispatch._empty_listener_reg[self.Target]['event_one'],
-            t1.dispatch.event_one
+            self.Target.dispatch._empty_listener_reg[self.Target]["event_one"],
+            t1.dispatch.event_one,
         )
 
         @event.listens_for(t1, "event_one")
         def listen_two(x, y):
             pass
-        is_not_(
-            self.Target.dispatch._empty_listener_reg[self.Target]['event_one'],
-            t1.dispatch.event_one
+
+        is_not(
+            self.Target.dispatch._empty_listener_reg[self.Target]["event_one"],
+            t1.dispatch.event_one,
         )
         is_(
-            self.Target.dispatch._empty_listener_reg[self.Target]['event_one'],
-            t2.dispatch.event_one
+            self.Target.dispatch._empty_listener_reg[self.Target]["event_one"],
+            t2.dispatch.event_one,
         )
+
+    def test_exec_once(self):
+        m1 = Mock()
+
+        event.listen(self.Target, "event_one", m1)
+
+        t1 = self.Target()
+        t2 = self.Target()
+
+        t1.dispatch.event_one.for_modify(t1.dispatch).exec_once(5, 6)
+
+        t1.dispatch.event_one.for_modify(t1.dispatch).exec_once(7, 8)
+
+        t2.dispatch.event_one.for_modify(t2.dispatch).exec_once(9, 10)
+
+        eq_(m1.mock_calls, [call(5, 6), call(9, 10)])
+
+    def test_real_name_wrong_dispatch(self):
+        m1 = Mock()
+
+        class E1(event.Events):
+            @classmethod
+            def _accept_with(cls, target):
+                if isinstance(target, T1):
+                    return target
+                else:
+                    m1.yup()
+                    return None
+
+            def event_one(self, x, y):
+                pass
+
+            def event_two(self, x):
+                pass
+
+            def event_three(self, x):
+                pass
+
+        class T1(object):
+            dispatch = event.dispatcher(E1)
+
+        class T2(object):
+            pass
+
+        class E2(event.Events):
+
+            _dispatch_target = T2
+
+            def event_four(self, x):
+                pass
+
+        with expect_raises_message(
+            exc.InvalidRequestError, "No such event 'event_three'"
+        ):
+
+            @event.listens_for(E2, "event_three")
+            def go(*arg):
+                pass
+
+        eq_(m1.mock_calls, [call.yup()])
+
+    def test_exec_once_exception(self):
+        m1 = Mock()
+        m1.side_effect = ValueError
+
+        event.listen(self.Target, "event_one", m1)
+
+        t1 = self.Target()
+
+        assert_raises(
+            ValueError,
+            t1.dispatch.event_one.for_modify(t1.dispatch).exec_once,
+            5,
+            6,
+        )
+
+        t1.dispatch.event_one.for_modify(t1.dispatch).exec_once(7, 8)
+
+        eq_(m1.mock_calls, [call(5, 6)])
+
+    def test_exec_once_unless_exception(self):
+        m1 = Mock()
+        m1.side_effect = ValueError
+
+        event.listen(self.Target, "event_one", m1)
+
+        t1 = self.Target()
+
+        assert_raises(
+            ValueError,
+            t1.dispatch.event_one.for_modify(
+                t1.dispatch
+            ).exec_once_unless_exception,
+            5,
+            6,
+        )
+
+        assert_raises(
+            ValueError,
+            t1.dispatch.event_one.for_modify(
+                t1.dispatch
+            ).exec_once_unless_exception,
+            7,
+            8,
+        )
+
+        m1.side_effect = None
+        t1.dispatch.event_one.for_modify(
+            t1.dispatch
+        ).exec_once_unless_exception(9, 10)
+
+        t1.dispatch.event_one.for_modify(
+            t1.dispatch
+        ).exec_once_unless_exception(11, 12)
+
+        eq_(m1.mock_calls, [call(5, 6), call(7, 8), call(9, 10)])
 
     def test_immutable_methods(self):
         t1 = self.Target()
@@ -181,14 +308,64 @@ class EventsTest(fixtures.TestBase):
             t1.dispatch.event_one.clear,
         ]:
             assert_raises_message(
-                NotImplementedError,
-                r"need to call for_modify\(\)",
-                meth
+                NotImplementedError, r"need to call for_modify\(\)", meth
             )
 
 
-class NamedCallTest(fixtures.TestBase):
+class SlotsEventsTest(fixtures.TestBase):
+    @testing.requires.python3
+    def test_no_slots_dispatch(self):
+        class Target(object):
+            __slots__ = ()
 
+        class TargetEvents(event.Events):
+            _dispatch_target = Target
+
+            def event_one(self, x, y):
+                pass
+
+            def event_two(self, x):
+                pass
+
+            def event_three(self, x):
+                pass
+
+        t1 = Target()
+
+        with testing.expect_raises_message(
+            TypeError,
+            r"target .*Target.* doesn't have __dict__, should it "
+            "be defining _slots_dispatch",
+        ):
+            event.listen(t1, "event_one", Mock())
+
+    def test_slots_dispatch(self):
+        class Target(object):
+            __slots__ = ("_slots_dispatch",)
+
+        class TargetEvents(event.Events):
+            _dispatch_target = Target
+
+            def event_one(self, x, y):
+                pass
+
+            def event_two(self, x):
+                pass
+
+            def event_three(self, x):
+                pass
+
+        t1 = Target()
+
+        m1 = Mock()
+        event.listen(t1, "event_one", m1)
+
+        t1.dispatch.event_one(2, 4)
+
+        eq_(m1.mock_calls, [call(2, 4)])
+
+
+class NamedCallTest(TearDownLocalEventsFixture, fixtures.TestBase):
     def _fixture(self):
         class TargetEventsOne(event.Events):
             def event_one(self, x, y):
@@ -202,6 +379,7 @@ class NamedCallTest(fixtures.TestBase):
 
         class TargetOne(object):
             dispatch = event.dispatcher(TargetEventsOne)
+
         return TargetOne
 
     def _wrapped_fixture(self):
@@ -212,6 +390,7 @@ class NamedCallTest(fixtures.TestBase):
 
                 def adapt(*args):
                     fn(*["adapted %s" % arg for arg in args])
+
                 event_key = event_key.with_wrapper(adapt)
 
                 event_key.base_listen()
@@ -224,6 +403,7 @@ class NamedCallTest(fixtures.TestBase):
 
         class Target(object):
             dispatch = event.dispatcher(TargetEvents)
+
         return Target
 
     def test_kw_accept(self):
@@ -237,10 +417,7 @@ class NamedCallTest(fixtures.TestBase):
 
         TargetOne().dispatch.event_one(4, 5)
 
-        eq_(
-            canary.mock_calls,
-            [call({"x": 4, "y": 5})]
-        )
+        eq_(canary.mock_calls, [call({"x": 4, "y": 5})])
 
     def test_kw_accept_wrapped(self):
         TargetOne = self._wrapped_fixture()
@@ -253,10 +430,7 @@ class NamedCallTest(fixtures.TestBase):
 
         TargetOne().dispatch.event_one(4, 5)
 
-        eq_(
-            canary.mock_calls,
-            [call({'y': 'adapted 5', 'x': 'adapted 4'})]
-        )
+        eq_(canary.mock_calls, [call({"y": "adapted 5", "x": "adapted 4"})])
 
     def test_partial_kw_accept(self):
         TargetOne = self._fixture()
@@ -269,10 +443,7 @@ class NamedCallTest(fixtures.TestBase):
 
         TargetOne().dispatch.event_five(4, 5, 6, 7)
 
-        eq_(
-            canary.mock_calls,
-            [call(6, 5, {"x": 4, "q": 7})]
-        )
+        eq_(canary.mock_calls, [call(6, 5, {"x": 4, "q": 7})])
 
     def test_partial_kw_accept_wrapped(self):
         TargetOne = self._wrapped_fixture()
@@ -287,8 +458,13 @@ class NamedCallTest(fixtures.TestBase):
 
         eq_(
             canary.mock_calls,
-            [call('adapted 6', 'adapted 5',
-             {'q': 'adapted 7', 'x': 'adapted 4'})]
+            [
+                call(
+                    "adapted 6",
+                    "adapted 5",
+                    {"q": "adapted 7", "x": "adapted 4"},
+                )
+            ],
         )
 
     def test_kw_accept_plus_kw(self):
@@ -301,18 +477,14 @@ class NamedCallTest(fixtures.TestBase):
 
         TargetOne().dispatch.event_two(4, 5, z=8, q=5)
 
-        eq_(
-            canary.mock_calls,
-            [call({"x": 4, "y": 5, "z": 8, "q": 5})]
-        )
+        eq_(canary.mock_calls, [call({"x": 4, "y": 5, "z": 8, "q": 5})])
 
 
-class LegacySignatureTest(fixtures.TestBase):
+class LegacySignatureTest(TearDownLocalEventsFixture, fixtures.TestBase):
     """test adaption of legacy args"""
 
-    def setUp(self):
+    def setup_test(self):
         class TargetEventsOne(event.Events):
-
             @event._legacy_signature("0.9", ["x", "y"])
             def event_three(self, x, y, z, q):
                 pass
@@ -322,18 +494,15 @@ class LegacySignatureTest(fixtures.TestBase):
                 pass
 
             @event._legacy_signature(
-                "0.9", ["x", "y", "z", "q"],
-                lambda x, y: (x, y, x + y, x * y))
+                "0.9", ["x", "y", "z", "q"], lambda x, y: (x, y, x + y, x * y)
+            )
             def event_six(self, x, y):
                 pass
 
         class TargetOne(object):
             dispatch = event.dispatcher(TargetEventsOne)
-        self.TargetOne = TargetOne
 
-    def tearDown(self):
-        event.base._remove_dispatcher(
-            self.TargetOne.__dict__['dispatch'].events)
+        self.TargetOne = TargetOne
 
     def test_legacy_accept(self):
         canary = Mock()
@@ -342,12 +511,15 @@ class LegacySignatureTest(fixtures.TestBase):
         def handler1(x, y):
             canary(x, y)
 
-        self.TargetOne().dispatch.event_three(4, 5, 6, 7)
+        with expect_deprecated(
+            'The argument signature for the "TargetEventsOne.event_three" '
+            "event listener has changed as of version 0.9, and conversion "
+            "for the old argument signature will be removed in a future "
+            r'release.  The new signature is "def event_three\(x, y, z, q\)"'
+        ):
+            self.TargetOne().dispatch.event_three(4, 5, 6, 7)
 
-        eq_(
-            canary.mock_calls,
-            [call(4, 5)]
-        )
+        eq_(canary.mock_calls, [call(4, 5)])
 
     def test_legacy_accept_kw_cls(self):
         canary = Mock()
@@ -355,6 +527,7 @@ class LegacySignatureTest(fixtures.TestBase):
         @event.listens_for(self.TargetOne, "event_four")
         def handler1(x, y, **kw):
             canary(x, y, kw)
+
         self._test_legacy_accept_kw(self.TargetOne(), canary)
 
     def test_legacy_accept_kw_instance(self):
@@ -365,6 +538,7 @@ class LegacySignatureTest(fixtures.TestBase):
         @event.listens_for(inst, "event_four")
         def handler1(x, y, **kw):
             canary(x, y, kw)
+
         self._test_legacy_accept_kw(inst, canary)
 
     def test_legacy_accept_partial(self):
@@ -372,28 +546,30 @@ class LegacySignatureTest(fixtures.TestBase):
 
         def evt(a, x, y, **kw):
             canary(a, x, y, **kw)
+
         from functools import partial
+
         evt_partial = partial(evt, 5)
         target = self.TargetOne()
         event.listen(target, "event_four", evt_partial)
         # can't do legacy accept on a partial; we can't inspect it
         assert_raises(
-            TypeError,
-            target.dispatch.event_four, 4, 5, 6, 7, foo="bar"
+            TypeError, target.dispatch.event_four, 4, 5, 6, 7, foo="bar"
         )
         target.dispatch.event_four(4, 5, foo="bar")
-        eq_(
-            canary.mock_calls,
-            [call(5, 4, 5, foo="bar")]
-        )
+        eq_(canary.mock_calls, [call(5, 4, 5, foo="bar")])
 
     def _test_legacy_accept_kw(self, target, canary):
-        target.dispatch.event_four(4, 5, 6, 7, foo="bar")
+        with expect_deprecated(
+            'The argument signature for the "TargetEventsOne.event_four" '
+            "event listener has changed as of version 0.9, and conversion "
+            "for the old argument signature will be removed in a future "
+            r"release.  The new signature is "
+            r'"def event_four\(x, y, z, q, \*\*kw\)"'
+        ):
+            target.dispatch.event_four(4, 5, 6, 7, foo="bar")
 
-        eq_(
-            canary.mock_calls,
-            [call(4, 5, {"foo": "bar"})]
-        )
+        eq_(canary.mock_calls, [call(4, 5, {"foo": "bar"})])
 
     def test_complex_legacy_accept(self):
         canary = Mock()
@@ -402,11 +578,26 @@ class LegacySignatureTest(fixtures.TestBase):
         def handler1(x, y, z, q):
             canary(x, y, z, q)
 
+        with expect_deprecated(
+            'The argument signature for the "TargetEventsOne.event_six" '
+            "event listener has changed as of version 0.9, and "
+            "conversion for the old argument signature will be removed in "
+            "a future release.  The new signature is "
+            r'"def event_six\(x, y\)'
+        ):
+            self.TargetOne().dispatch.event_six(4, 5)
+        eq_(canary.mock_calls, [call(4, 5, 9, 20)])
+
+    def test_complex_new_accept(self):
+        canary = Mock()
+
+        @event.listens_for(self.TargetOne, "event_six")
+        def handler1(x, y):
+            canary(x, y)
+
+        # new version does not emit a warning
         self.TargetOne().dispatch.event_six(4, 5)
-        eq_(
-            canary.mock_calls,
-            [call(4, 5, 9, 20)]
-        )
+        eq_(canary.mock_calls, [call(4, 5)])
 
     def test_legacy_accept_from_method(self):
         canary = Mock()
@@ -417,11 +608,14 @@ class LegacySignatureTest(fixtures.TestBase):
 
         event.listen(self.TargetOne, "event_three", MyClass().handler1)
 
-        self.TargetOne().dispatch.event_three(4, 5, 6, 7)
-        eq_(
-            canary.mock_calls,
-            [call(4, 5)]
-        )
+        with expect_deprecated(
+            'The argument signature for the "TargetEventsOne.event_three" '
+            "event listener has changed as of version 0.9, and conversion "
+            "for the old argument signature will be removed in a future "
+            r'release.  The new signature is "def event_three\(x, y, z, q\)"'
+        ):
+            self.TargetOne().dispatch.event_three(4, 5, 6, 7)
+        eq_(canary.mock_calls, [call(4, 5)])
 
     def test_standard_accept_has_legacies(self):
         canary = Mock()
@@ -430,10 +624,7 @@ class LegacySignatureTest(fixtures.TestBase):
 
         self.TargetOne().dispatch.event_three(4, 5)
 
-        eq_(
-            canary.mock_calls,
-            [call(4, 5)]
-        )
+        eq_(canary.mock_calls, [call(4, 5)])
 
     def test_kw_accept_has_legacies(self):
         canary = Mock()
@@ -444,10 +635,7 @@ class LegacySignatureTest(fixtures.TestBase):
 
         self.TargetOne().dispatch.event_three(4, 5, 6, 7)
 
-        eq_(
-            canary.mock_calls,
-            [call({"x": 4, "y": 5, "z": 6, "q": 7})]
-        )
+        eq_(canary.mock_calls, [call({"x": 4, "y": 5, "z": 6, "q": 7})])
 
     def test_kw_accept_plus_kw_has_legacies(self):
         canary = Mock()
@@ -460,23 +648,19 @@ class LegacySignatureTest(fixtures.TestBase):
 
         eq_(
             canary.mock_calls,
-            [call({"x": 4, "y": 5, "z": 6, "q": 7, "foo": "bar"})]
+            [call({"x": 4, "y": 5, "z": 6, "q": 7, "foo": "bar"})],
         )
 
 
-class ClsLevelListenTest(fixtures.TestBase):
-
-    def tearDown(self):
-        event.base._remove_dispatcher(
-            self.TargetOne.__dict__['dispatch'].events)
-
-    def setUp(self):
+class ClsLevelListenTest(TearDownLocalEventsFixture, fixtures.TestBase):
+    def setup_test(self):
         class TargetEventsOne(event.Events):
             def event_one(self, x, y):
                 pass
 
         class TargetOne(object):
             dispatch = event.dispatcher(TargetEventsOne)
+
         self.TargetOne = TargetOne
 
     def test_lis_subcalss_lis(self):
@@ -491,10 +675,7 @@ class ClsLevelListenTest(fixtures.TestBase):
         def handler2(x, y):
             pass
 
-        eq_(
-            len(SubTarget().dispatch.event_one),
-            2
-        )
+        eq_(len(SubTarget().dispatch.event_one), 2)
 
     def test_lis_multisub_lis(self):
         @event.listens_for(self.TargetOne, "event_one")
@@ -511,14 +692,8 @@ class ClsLevelListenTest(fixtures.TestBase):
         def handler2(x, y):
             pass
 
-        eq_(
-            len(SubTarget().dispatch.event_one),
-            2
-        )
-        eq_(
-            len(SubSubTarget().dispatch.event_one),
-            2
-        )
+        eq_(len(SubTarget().dispatch.event_one), 2)
+        eq_(len(SubSubTarget().dispatch.event_one), 2)
 
     def test_two_sub_lis(self):
         class SubTarget1(self.TargetOne):
@@ -544,10 +719,10 @@ class ClsLevelListenTest(fixtures.TestBase):
         assert handler2 not in s2.dispatch.event_one
 
 
-class AcceptTargetsTest(fixtures.TestBase):
+class AcceptTargetsTest(TearDownLocalEventsFixture, fixtures.TestBase):
     """Test default target acceptance."""
 
-    def setUp(self):
+    def setup_test(self):
         class TargetEventsOne(event.Events):
             def event_one(self, x, y):
                 pass
@@ -561,14 +736,9 @@ class AcceptTargetsTest(fixtures.TestBase):
 
         class TargetTwo(object):
             dispatch = event.dispatcher(TargetEventsTwo)
+
         self.TargetOne = TargetOne
         self.TargetTwo = TargetTwo
-
-    def tearDown(self):
-        event.base._remove_dispatcher(
-            self.TargetOne.__dict__['dispatch'].events)
-        event.base._remove_dispatcher(
-            self.TargetTwo.__dict__['dispatch'].events)
 
     def test_target_accept(self):
         """Test that events of the same name are routed to the correct
@@ -591,15 +761,9 @@ class AcceptTargetsTest(fixtures.TestBase):
         event.listen(self.TargetOne, "event_one", listen_one)
         event.listen(self.TargetTwo, "event_one", listen_two)
 
-        eq_(
-            list(self.TargetOne().dispatch.event_one),
-            [listen_one]
-        )
+        eq_(list(self.TargetOne().dispatch.event_one), [listen_one])
 
-        eq_(
-            list(self.TargetTwo().dispatch.event_one),
-            [listen_two]
-        )
+        eq_(list(self.TargetTwo().dispatch.event_one), [listen_two])
 
         t1 = self.TargetOne()
         t2 = self.TargetTwo()
@@ -607,25 +771,19 @@ class AcceptTargetsTest(fixtures.TestBase):
         event.listen(t1, "event_one", listen_three)
         event.listen(t2, "event_one", listen_four)
 
-        eq_(
-            list(t1.dispatch.event_one),
-            [listen_one, listen_three]
-        )
+        eq_(list(t1.dispatch.event_one), [listen_one, listen_three])
 
-        eq_(
-            list(t2.dispatch.event_one),
-            [listen_two, listen_four]
-        )
+        eq_(list(t2.dispatch.event_one), [listen_two, listen_four])
 
 
-class CustomTargetsTest(fixtures.TestBase):
+class CustomTargetsTest(TearDownLocalEventsFixture, fixtures.TestBase):
     """Test custom target acceptance."""
 
-    def setUp(self):
+    def setup_test(self):
         class TargetEvents(event.Events):
             @classmethod
             def _accept_with(cls, target):
-                if target == 'one':
+                if target == "one":
                     return Target
                 else:
                     return None
@@ -635,10 +793,8 @@ class CustomTargetsTest(fixtures.TestBase):
 
         class Target(object):
             dispatch = event.dispatcher(TargetEvents)
-        self.Target = Target
 
-    def tearDown(self):
-        event.base._remove_dispatcher(self.Target.__dict__['dispatch'].events)
+        self.Target = Target
 
     def test_indirect(self):
         def listen(x, y):
@@ -646,22 +802,21 @@ class CustomTargetsTest(fixtures.TestBase):
 
         event.listen("one", "event_one", listen)
 
-        eq_(
-            list(self.Target().dispatch.event_one),
-            [listen]
-        )
+        eq_(list(self.Target().dispatch.event_one), [listen])
 
         assert_raises(
             exc.InvalidRequestError,
             event.listen,
-            listen, "event_one", self.Target
+            listen,
+            "event_one",
+            self.Target,
         )
 
 
-class SubclassGrowthTest(fixtures.TestBase):
+class SubclassGrowthTest(TearDownLocalEventsFixture, fixtures.TestBase):
     """test that ad-hoc subclasses are garbage collected."""
 
-    def setUp(self):
+    def setup_test(self):
         class TargetEvents(event.Events):
             def some_event(self, x, y):
                 pass
@@ -683,18 +838,20 @@ class SubclassGrowthTest(fixtures.TestBase):
         eq_(self.Target.__subclasses__(), [])
 
 
-class ListenOverrideTest(fixtures.TestBase):
+class ListenOverrideTest(TearDownLocalEventsFixture, fixtures.TestBase):
     """Test custom listen functions which change the listener function
     signature."""
 
-    def setUp(self):
+    def setup_test(self):
         class TargetEvents(event.Events):
             @classmethod
             def _listen(cls, event_key, add=False):
                 fn = event_key.fn
                 if add:
+
                     def adapt(x, y):
                         fn(x + y)
+
                     event_key = event_key.with_wrapper(adapt)
 
                 event_key.base_listen()
@@ -704,10 +861,8 @@ class ListenOverrideTest(fixtures.TestBase):
 
         class Target(object):
             dispatch = event.dispatcher(TargetEvents)
-        self.Target = Target
 
-    def tearDown(self):
-        event.base._remove_dispatcher(self.Target.__dict__['dispatch'].events)
+        self.Target = Target
 
     def test_listen_override(self):
         listen_one = Mock()
@@ -720,50 +875,32 @@ class ListenOverrideTest(fixtures.TestBase):
         t1.dispatch.event_one(5, 7)
         t1.dispatch.event_one(10, 5)
 
-        eq_(
-            listen_one.mock_calls,
-            [call(12), call(15)]
-        )
-        eq_(
-            listen_two.mock_calls,
-            [call(5, 7), call(10, 5)]
-        )
+        eq_(listen_one.mock_calls, [call(12), call(15)])
+        eq_(listen_two.mock_calls, [call(5, 7), call(10, 5)])
 
     def test_remove_clslevel(self):
         listen_one = Mock()
         event.listen(self.Target, "event_one", listen_one, add=True)
         t1 = self.Target()
         t1.dispatch.event_one(5, 7)
-        eq_(
-            listen_one.mock_calls,
-            [call(12)]
-        )
+        eq_(listen_one.mock_calls, [call(12)])
         event.remove(self.Target, "event_one", listen_one)
         t1.dispatch.event_one(10, 5)
-        eq_(
-            listen_one.mock_calls,
-            [call(12)]
-        )
+        eq_(listen_one.mock_calls, [call(12)])
 
     def test_remove_instancelevel(self):
         listen_one = Mock()
         t1 = self.Target()
         event.listen(t1, "event_one", listen_one, add=True)
         t1.dispatch.event_one(5, 7)
-        eq_(
-            listen_one.mock_calls,
-            [call(12)]
-        )
+        eq_(listen_one.mock_calls, [call(12)])
         event.remove(t1, "event_one", listen_one)
         t1.dispatch.event_one(10, 5)
-        eq_(
-            listen_one.mock_calls,
-            [call(12)]
-        )
+        eq_(listen_one.mock_calls, [call(12)])
 
 
-class PropagateTest(fixtures.TestBase):
-    def setUp(self):
+class PropagateTest(TearDownLocalEventsFixture, fixtures.TestBase):
+    def setup_test(self):
         class TargetEvents(event.Events):
             def event_one(self, arg):
                 pass
@@ -773,6 +910,7 @@ class PropagateTest(fixtures.TestBase):
 
         class Target(object):
             dispatch = event.dispatcher(TargetEvents)
+
         self.Target = Target
 
     def test_propagate(self):
@@ -791,18 +929,12 @@ class PropagateTest(fixtures.TestBase):
         t2.dispatch.event_one(t2, 1)
         t2.dispatch.event_two(t2, 2)
 
-        eq_(
-            listen_one.mock_calls,
-            [call(t2, 1)]
-        )
-        eq_(
-            listen_two.mock_calls,
-            []
-        )
+        eq_(listen_one.mock_calls, [call(t2, 1)])
+        eq_(listen_two.mock_calls, [])
 
 
-class JoinTest(fixtures.TestBase):
-    def setUp(self):
+class JoinTest(TearDownLocalEventsFixture, fixtures.TestBase):
+    def setup_test(self):
         class TargetEvents(event.Events):
             def event_one(self, target, arg):
                 pass
@@ -826,13 +958,6 @@ class JoinTest(fixtures.TestBase):
         self.TargetFactory = TargetFactory
         self.TargetElement = TargetElement
 
-    def tearDown(self):
-        for cls in (
-            self.TargetElement,
-                self.TargetFactory, self.BaseTarget):
-            if 'dispatch' in cls.__dict__:
-                event.base._remove_dispatcher(cls.__dict__['dispatch'].events)
-
     def test_neither(self):
         element = self.TargetFactory().create()
         element.run_event(1)
@@ -854,7 +979,7 @@ class JoinTest(fixtures.TestBase):
             [
                 call({"target": element, "arg": 1}),
                 call({"target": element, "arg": 2}),
-            ]
+            ],
         )
 
     def test_parent_class_only(self):
@@ -868,7 +993,7 @@ class JoinTest(fixtures.TestBase):
         element.run_event(3)
         eq_(
             l1.mock_calls,
-            [call(element, 1), call(element, 2), call(element, 3)]
+            [call(element, 1), call(element, 2), call(element, 3)],
         )
 
     def test_parent_class_child_class(self):
@@ -884,11 +1009,11 @@ class JoinTest(fixtures.TestBase):
         element.run_event(3)
         eq_(
             l1.mock_calls,
-            [call(element, 1), call(element, 2), call(element, 3)]
+            [call(element, 1), call(element, 2), call(element, 3)],
         )
         eq_(
             l2.mock_calls,
-            [call(element, 1), call(element, 2), call(element, 3)]
+            [call(element, 1), call(element, 2), call(element, 3)],
         )
 
     def test_parent_class_child_instance_apply_after(self):
@@ -906,12 +1031,9 @@ class JoinTest(fixtures.TestBase):
 
         eq_(
             l1.mock_calls,
-            [call(element, 1), call(element, 2), call(element, 3)]
+            [call(element, 1), call(element, 2), call(element, 3)],
         )
-        eq_(
-            l2.mock_calls,
-            [call(element, 2), call(element, 3)]
-        )
+        eq_(l2.mock_calls, [call(element, 2), call(element, 3)])
 
     def test_parent_class_child_instance_apply_before(self):
         l1 = Mock()
@@ -928,11 +1050,11 @@ class JoinTest(fixtures.TestBase):
 
         eq_(
             l1.mock_calls,
-            [call(element, 1), call(element, 2), call(element, 3)]
+            [call(element, 1), call(element, 2), call(element, 3)],
         )
         eq_(
             l2.mock_calls,
-            [call(element, 1), call(element, 2), call(element, 3)]
+            [call(element, 1), call(element, 2), call(element, 3)],
         )
 
     def test_parent_instance_child_class_apply_before(self):
@@ -952,11 +1074,11 @@ class JoinTest(fixtures.TestBase):
 
         eq_(
             l1.mock_calls,
-            [call(element, 1), call(element, 2), call(element, 3)]
+            [call(element, 1), call(element, 2), call(element, 3)],
         )
         eq_(
             l2.mock_calls,
-            [call(element, 1), call(element, 2), call(element, 3)]
+            [call(element, 1), call(element, 2), call(element, 3)],
         )
 
     def test_parent_instance_child_class_apply_after(self):
@@ -978,19 +1100,17 @@ class JoinTest(fixtures.TestBase):
         # if _JoinedListener fixes .listeners
         # at construction time, then we don't get
         # the new listeners.
-        #eq_(l1.mock_calls, [])
+        # eq_(l1.mock_calls, [])
 
         # alternatively, if _JoinedListener shares the list
         # using a @property, then we get them, at the arguable
         # expense of the extra method call to access the .listeners
         # collection
-        eq_(
-            l1.mock_calls, [call(element, 2), call(element, 3)]
-        )
+        eq_(l1.mock_calls, [call(element, 2), call(element, 3)])
 
         eq_(
             l2.mock_calls,
-            [call(element, 1), call(element, 2), call(element, 3)]
+            [call(element, 1), call(element, 2), call(element, 3)],
         )
 
     def test_parent_instance_child_instance_apply_before(self):
@@ -1009,11 +1129,11 @@ class JoinTest(fixtures.TestBase):
 
         eq_(
             l1.mock_calls,
-            [call(element, 1), call(element, 2), call(element, 3)]
+            [call(element, 1), call(element, 2), call(element, 3)],
         )
         eq_(
             l2.mock_calls,
-            [call(element, 1), call(element, 2), call(element, 3)]
+            [call(element, 1), call(element, 2), call(element, 3)],
         )
 
     def test_parent_events_child_no_events(self):
@@ -1029,11 +1149,63 @@ class JoinTest(fixtures.TestBase):
 
         eq_(
             l1.mock_calls,
-            [call(element, 1), call(element, 2), call(element, 3)]
+            [call(element, 1), call(element, 2), call(element, 3)],
         )
 
 
-class RemovalTest(fixtures.TestBase):
+class DisableClsPropagateTest(TearDownLocalEventsFixture, fixtures.TestBase):
+    def setup_test(self):
+        class TargetEvents(event.Events):
+            def event_one(self, target, arg):
+                pass
+
+        class BaseTarget(object):
+            dispatch = event.dispatcher(TargetEvents)
+
+        class SubTarget(BaseTarget):
+            _sa_propagate_class_events = False
+
+            def __init__(self, parent):
+                self.dispatch = self.dispatch._join(parent.dispatch)
+
+        self.BaseTarget = BaseTarget
+        self.SubTarget = SubTarget
+
+    def test_listen_invoke_clslevel(self):
+        canary = Mock()
+
+        event.listen(self.BaseTarget, "event_one", canary)
+
+        s1 = self.SubTarget(self.BaseTarget())
+        s1.dispatch.event_one()
+
+        eq_(canary.mock_calls, [call.event_one()])
+
+    def test_insert_invoke_clslevel(self):
+        canary = Mock()
+
+        event.listen(self.BaseTarget, "event_one", canary, insert=True)
+
+        s1 = self.SubTarget(self.BaseTarget())
+        s1.dispatch.event_one()
+
+        eq_(canary.mock_calls, [call.event_one()])
+
+    def test_remove_invoke_clslevel(self):
+        canary = Mock()
+
+        event.listen(self.BaseTarget, "event_one", canary)
+
+        s1 = self.SubTarget(self.BaseTarget())
+
+        event.remove(self.BaseTarget, "event_one", canary)
+
+        s1.dispatch.event_one()
+
+        eq_(canary.mock_calls, [])
+
+
+class RemovalTest(TearDownLocalEventsFixture, fixtures.TestBase):
     def _fixture(self):
         class TargetEvents(event.Events):
             def event_one(self, x, y):
@@ -1047,6 +1219,7 @@ class RemovalTest(fixtures.TestBase):
 
         class Target(object):
             dispatch = event.dispatcher(TargetEvents)
+
         return Target
 
     def _wrapped_fixture(self):
@@ -1057,6 +1230,7 @@ class RemovalTest(fixtures.TestBase):
 
                 def adapt(value):
                     fn("adapted " + value)
+
                 event_key = event_key.with_wrapper(adapt)
 
                 event_key.base_listen()
@@ -1066,6 +1240,7 @@ class RemovalTest(fixtures.TestBase):
 
         class Target(object):
             dispatch = event.dispatcher(TargetEvents)
+
         return Target
 
     def test_clslevel(self):
@@ -1154,6 +1329,97 @@ class RemovalTest(fixtures.TestBase):
         eq_(m3.mock_calls, [call("x")])
         eq_(m4.mock_calls, [call("z")])
 
+    def test_once_unless_exception(self):
+        Target = self._fixture()
+
+        m1 = Mock()
+        m2 = Mock()
+        m3 = Mock()
+        m4 = Mock()
+
+        m1.side_effect = ValueError
+        m2.side_effect = ValueError
+        m3.side_effect = ValueError
+
+        event.listen(Target, "event_one", m1)
+        event.listen(Target, "event_one", m2, _once_unless_exception=True)
+        event.listen(Target, "event_one", m3, _once_unless_exception=True)
+
+        t1 = Target()
+
+        # only m1 is called, raises
+        assert_raises(ValueError, t1.dispatch.event_one, "x")
+
+        # now m1 and m2 can be called but not m3
+        m1.side_effect = None
+
+        assert_raises(ValueError, t1.dispatch.event_one, "y")
+
+        # now m3 can be called
+        m2.side_effect = None
+
+        event.listen(Target, "event_one", m4, _once_unless_exception=True)
+        assert_raises(ValueError, t1.dispatch.event_one, "z")
+
+        assert_raises(ValueError, t1.dispatch.event_one, "q")
+
+        eq_(m1.mock_calls, [call("x"), call("y"), call("z"), call("q")])
+        eq_(m2.mock_calls, [call("y"), call("z")])
+        eq_(m3.mock_calls, [call("z"), call("q")])
+        eq_(m4.mock_calls, [])  # m4 never got called because m3 blocked it
+
+        # now m4 can be called
+        m3.side_effect = None
+
+        t1.dispatch.event_one("p")
+        eq_(
+            m1.mock_calls,
+            [call("x"), call("y"), call("z"), call("q"), call("p")],
+        )
+
+        # m2 already got called, so no "p"
+        eq_(m2.mock_calls, [call("y"), call("z")])
+        eq_(m3.mock_calls, [call("z"), call("q"), call("p")])
+        eq_(m4.mock_calls, [call("p")])
+
+        t1.dispatch.event_one("j")
+        eq_(
+            m1.mock_calls,
+            [call("x"), call("y"), call("z"), call("q"), call("p"), call("j")],
+        )
+
+        # nobody got "j" because they've all been successful
+        eq_(m2.mock_calls, [call("y"), call("z")])
+        eq_(m3.mock_calls, [call("z"), call("q"), call("p")])
+        eq_(m4.mock_calls, [call("p")])
+
+    def test_once_doesnt_dereference_listener(self):
+        # test for [ticket:4794]
+
+        Target = self._fixture()
+
+        canary = Mock()
+
+        def go(target, given_id):
+            def anonymous(run_id):
+                canary(run_id, given_id)
+
+            event.listen(target, "event_one", anonymous, once=True)
+
+        t1 = Target()
+
+        assert_calls = []
+        given_ids = []
+        for given_id in range(100):
+            given_ids.append(given_id)
+            go(t1, given_id)
+            if given_id % 10 == 0:
+                t1.dispatch.event_one(given_id)
+                assert_calls.extend(call(given_id, i) for i in given_ids)
+                given_ids[:] = []
+
+        eq_(canary.mock_calls, assert_calls)
+
     def test_propagate(self):
         Target = self._fixture()
 
@@ -1180,11 +1446,7 @@ class RemovalTest(fixtures.TestBase):
         t2.dispatch.event_one("t2e1y")
         t2.dispatch.event_two("t2e2y")
 
-        eq_(m1.mock_calls,
-            [
-                call('t1e1x'), call('t1e2x'),
-                call('t2e1x')
-            ])
+        eq_(m1.mock_calls, [call("t1e1x"), call("t1e2x"), call("t2e1x")])
 
     @testing.requires.predictable_gc
     def test_listener_collection_removed_cleanup(self):
@@ -1228,7 +1490,10 @@ class RemovalTest(fixtures.TestBase):
             exc.InvalidRequestError,
             r"No listeners found for event <.*Target.*> / "
             r"'event_two' / <Mock.*> ",
-            event.remove, t1, "event_two", m1
+            event.remove,
+            t1,
+            "event_two",
+            m1,
         )
 
         event.remove(t1, "event_three", m1)
@@ -1244,9 +1509,7 @@ class RemovalTest(fixtures.TestBase):
         event.listen(t1, "event_one", evt)
 
         assert_raises_message(
-            Exception,
-            "deque mutated during iteration",
-            t1.dispatch.event_one
+            Exception, "deque mutated during iteration", t1.dispatch.event_one
         )
 
     def test_no_add_in_event(self):
@@ -1262,9 +1525,7 @@ class RemovalTest(fixtures.TestBase):
         event.listen(t1, "event_one", evt)
 
         assert_raises_message(
-            Exception,
-            "deque mutated during iteration",
-            t1.dispatch.event_one
+            Exception, "deque mutated during iteration", t1.dispatch.event_one
         )
 
     def test_remove_plain_named(self):

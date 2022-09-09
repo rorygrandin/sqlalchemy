@@ -1,14 +1,14 @@
 .. _metadata_constraints_toplevel:
 .. _metadata_constraints:
 
-.. module:: sqlalchemy.schema
+.. currentmodule:: sqlalchemy.schema
 
-=================================
+================================
 Defining Constraints and Indexes
-=================================
+================================
 
 This section will discuss SQL :term:`constraints` and indexes.  In SQLAlchemy
-the key classes include :class:`.ForeignKeyConstraint` and :class:`.Index`.
+the key classes include :class:`_schema.ForeignKeyConstraint` and :class:`.Index`.
 
 .. _metadata_foreignkeys:
 
@@ -33,7 +33,7 @@ column. The single column foreign key is more common, and at the column level
 is specified by constructing a :class:`~sqlalchemy.schema.ForeignKey` object
 as an argument to a :class:`~sqlalchemy.schema.Column` object::
 
-    user_preference = Table('user_preference', metadata,
+    user_preference = Table('user_preference', metadata_obj,
         Column('pref_id', Integer, primary_key=True),
         Column('user_id', Integer, ForeignKey("user.user_id"), nullable=False),
         Column('pref_name', String(40), nullable=False),
@@ -64,7 +64,7 @@ known as a *composite* foreign key, and almost always references a table that
 has a composite primary key. Below we define a table ``invoice`` which has a
 composite primary key::
 
-    invoice = Table('invoice', metadata,
+    invoice = Table('invoice', metadata_obj,
         Column('invoice_id', Integer, primary_key=True),
         Column('ref_num', Integer, primary_key=True),
         Column('description', String(60), nullable=False)
@@ -73,7 +73,7 @@ composite primary key::
 And then a table ``invoice_item`` with a composite foreign key referencing
 ``invoice``::
 
-    invoice_item = Table('invoice_item', metadata,
+    invoice_item = Table('invoice_item', metadata_obj,
         Column('item_id', Integer, primary_key=True),
         Column('item_name', String(60), nullable=False),
         Column('invoice_id', Integer, nullable=False),
@@ -111,11 +111,11 @@ rendered "inline" within the CREATE TABLE statement, such as:
 
 The ``CONSTRAINT .. FOREIGN KEY`` directive is used to create the constraint
 in an "inline" fashion within the CREATE TABLE definition.   The
-:meth:`.MetaData.create_all` and :meth:`.MetaData.drop_all` methods do
-this by default, using a topological sort of all the :class:`.Table` objects
+:meth:`_schema.MetaData.create_all` and :meth:`_schema.MetaData.drop_all` methods do
+this by default, using a topological sort of all the :class:`_schema.Table` objects
 involved such that tables are created and dropped in order of their foreign
 key dependency (this sort is also available via the
-:attr:`.MetaData.sorted_tables` accessor).
+:attr:`_schema.MetaData.sorted_tables` accessor).
 
 This approach can't work when two or more foreign key constraints are
 involved in a "dependency cycle", where a set of tables
@@ -126,7 +126,7 @@ statements, on all backends other than SQLite which does not support
 most forms of ALTER.  Given a schema like::
 
     node = Table(
-        'node', metadata,
+        'node', metadata_obj,
         Column('node_id', Integer, primary_key=True),
         Column(
             'primary_element', Integer,
@@ -135,7 +135,7 @@ most forms of ALTER.  Given a schema like::
     )
 
     element = Table(
-        'element', metadata,
+        'element', metadata_obj,
         Column('element_id', Integer, primary_key=True),
         Column('parent_node_id', Integer),
         ForeignKeyConstraint(
@@ -144,14 +144,14 @@ most forms of ALTER.  Given a schema like::
         )
     )
 
-When we call upon :meth:`.MetaData.create_all` on a backend such as the
+When we call upon :meth:`_schema.MetaData.create_all` on a backend such as the
 PostgreSQL backend, the cycle between these two tables is resolved and the
 constraints are created separately:
 
 .. sourcecode:: pycon+sql
 
     >>> with engine.connect() as conn:
-    ...    metadata.create_all(conn, checkfirst=False)
+    ...    metadata_obj.create_all(conn, checkfirst=False)
     {opensql}CREATE TABLE element (
         element_id SERIAL NOT NULL,
         parent_node_id INTEGER,
@@ -179,7 +179,7 @@ those constraints that are named:
 .. sourcecode:: pycon+sql
 
     >>> with engine.connect() as conn:
-    ...    metadata.drop_all(conn, checkfirst=False)
+    ...    metadata_obj.drop_all(conn, checkfirst=False)
     {opensql}ALTER TABLE element DROP CONSTRAINT fk_element_parent_node_id
     DROP TABLE node
     DROP TABLE element
@@ -199,13 +199,13 @@ This error only applies to the DROP case as we can emit "ADD CONSTRAINT"
 in the CREATE case without a name; the database typically assigns one
 automatically.
 
-The :paramref:`.ForeignKeyConstraint.use_alter` and
-:paramref:`.ForeignKey.use_alter` keyword arguments can be used
+The :paramref:`_schema.ForeignKeyConstraint.use_alter` and
+:paramref:`_schema.ForeignKey.use_alter` keyword arguments can be used
 to manually resolve dependency cycles.  We can add this flag only to
 the ``'element'`` table as follows::
 
     element = Table(
-        'element', metadata,
+        'element', metadata_obj,
         Column('element_id', Integer, primary_key=True),
         Column('parent_node_id', Integer),
         ForeignKeyConstraint(
@@ -220,7 +220,7 @@ and not the other one:
 .. sourcecode:: pycon+sql
 
     >>> with engine.connect() as conn:
-    ...    metadata.create_all(conn, checkfirst=False)
+    ...    metadata_obj.create_all(conn, checkfirst=False)
     {opensql}CREATE TABLE element (
         element_id SERIAL NOT NULL,
         parent_node_id INTEGER,
@@ -238,8 +238,8 @@ and not the other one:
     FOREIGN KEY(parent_node_id) REFERENCES node (node_id)
     {stop}
 
-:paramref:`.ForeignKeyConstraint.use_alter` and
-:paramref:`.ForeignKey.use_alter`, when used in conjunction with a drop
+:paramref:`_schema.ForeignKeyConstraint.use_alter` and
+:paramref:`_schema.ForeignKey.use_alter`, when used in conjunction with a drop
 operation, will require that the constraint is named, else an error
 like the following is generated::
 
@@ -247,14 +247,14 @@ like the following is generated::
     ForeignKeyConstraint(...); it has no name
 
 .. versionchanged:: 1.0.0 - The DDL system invoked by
-   :meth:`.MetaData.create_all`
-   and :meth:`.MetaData.drop_all` will now automatically resolve mutually
-   depdendent foreign keys between tables declared by
-   :class:`.ForeignKeyConstraint` and :class:`.ForeignKey` objects, without
-   the need to explicitly set the :paramref:`.ForeignKeyConstraint.use_alter`
+   :meth:`_schema.MetaData.create_all`
+   and :meth:`_schema.MetaData.drop_all` will now automatically resolve mutually
+   dependent foreign keys between tables declared by
+   :class:`_schema.ForeignKeyConstraint` and :class:`_schema.ForeignKey` objects, without
+   the need to explicitly set the :paramref:`_schema.ForeignKeyConstraint.use_alter`
    flag.
 
-.. versionchanged:: 1.0.0 - The :paramref:`.ForeignKeyConstraint.use_alter`
+.. versionchanged:: 1.0.0 - The :paramref:`_schema.ForeignKeyConstraint.use_alter`
    flag can be used with an un-named constraint; only the DROP operation
    will emit a specific error when actually called upon.
 
@@ -282,14 +282,14 @@ generation of this clause via the ``onupdate`` and ``ondelete`` keyword
 arguments. The value is any string which will be output after the appropriate
 "ON UPDATE" or "ON DELETE" phrase::
 
-    child = Table('child', meta,
+    child = Table('child', metadata_obj,
         Column('id', Integer,
                 ForeignKey('parent.id', onupdate="CASCADE", ondelete="CASCADE"),
                 primary_key=True
         )
     )
 
-    composite = Table('composite', meta,
+    composite = Table('composite', metadata_obj,
         Column('id', Integer, primary_key=True),
         Column('rev_id', Integer),
         Column('note_id', Integer),
@@ -300,10 +300,19 @@ arguments. The value is any string which will be output after the appropriate
         )
     )
 
-Note that these clauses are not supported on SQLite, and require ``InnoDB``
-tables when used with MySQL. They may also not be supported on other
-databases.
+Note that these clauses require ``InnoDB`` tables when used with MySQL.
+They may also not be supported on other databases.
 
+.. seealso::
+
+    For background on integration of ``ON DELETE CASCADE`` with
+    ORM :func:`_orm.relationship` constructs, see the following sections:
+
+    :ref:`passive_deletes`
+
+    :ref:`passive_deletes_many_to_many`
+
+.. _schema_unique_constraint:
 
 UNIQUE Constraint
 -----------------
@@ -317,8 +326,8 @@ unique constraints and/or those with multiple columns are created via the
 
     from sqlalchemy import UniqueConstraint
 
-    meta = MetaData()
-    mytable = Table('mytable', meta,
+    metadata_obj = MetaData()
+    mytable = Table('mytable', metadata_obj,
 
         # per-column anonymous unique constraint
         Column('col1', Integer, unique=True),
@@ -347,8 +356,8 @@ MySQL.
 
     from sqlalchemy import CheckConstraint
 
-    meta = MetaData()
-    mytable = Table('mytable', meta,
+    metadata_obj = MetaData()
+    mytable = Table('mytable', metadata_obj,
 
         # per-column CHECK constraint
         Column('col1', Integer, CheckConstraint('col1>5')),
@@ -371,15 +380,15 @@ MySQL.
 PRIMARY KEY Constraint
 ----------------------
 
-The primary key constraint of any :class:`.Table` object is implicitly
-present, based on the :class:`.Column` objects that are marked with the
-:paramref:`.Column.primary_key` flag.   The :class:`.PrimaryKeyConstraint`
+The primary key constraint of any :class:`_schema.Table` object is implicitly
+present, based on the :class:`_schema.Column` objects that are marked with the
+:paramref:`_schema.Column.primary_key` flag.   The :class:`.PrimaryKeyConstraint`
 object provides explicit access to this constraint, which includes the
 option of being configured directly::
 
     from sqlalchemy import PrimaryKeyConstraint
 
-    my_table = Table('mytable', metadata,
+    my_table = Table('mytable', metadata_obj,
                 Column('id', Integer),
                 Column('version_id', Integer),
                 Column('data', String(50)),
@@ -391,15 +400,15 @@ option of being configured directly::
     :class:`.PrimaryKeyConstraint` - detailed API documentation.
 
 Setting up Constraints when using the Declarative ORM Extension
-----------------------------------------------------------------
+---------------------------------------------------------------
 
-The :class:`.Table` is the SQLAlchemy Core construct that allows one to define
+The :class:`_schema.Table` is the SQLAlchemy Core construct that allows one to define
 table metadata, which among other things can be used by the SQLAlchemy ORM
 as a target to map a class.  The :ref:`Declarative <declarative_toplevel>`
-extension allows the :class:`.Table` object to be created automatically, given
-the contents of the table primarily as a mapping of :class:`.Column` objects.
+extension allows the :class:`_schema.Table` object to be created automatically, given
+the contents of the table primarily as a mapping of :class:`_schema.Column` objects.
 
-To apply table-level constraint objects such as :class:`.ForeignKeyConstraint`
+To apply table-level constraint objects such as :class:`_schema.ForeignKeyConstraint`
 to a table defined using Declarative, use the ``__table_args__`` attribute,
 described at :ref:`declarative_table_args`.
 
@@ -415,18 +424,18 @@ produced inline with the table definition, the database usually has a system
 in place in which names are automatically assigned to these constraints, if
 a name is not otherwise specified.  When an existing database table is altered
 in a database using a command such as ``ALTER TABLE``, this command typically
-needs to specify expicit names for new constraints as well as be able to
+needs to specify explicit names for new constraints as well as be able to
 specify the name of an existing constraint that is to be dropped or modified.
 
 Constraints can be named explicitly using the :paramref:`.Constraint.name` parameter,
 and for indexes the :paramref:`.Index.name` parameter.  However, in the
 case of constraints this parameter is optional.  There are also the use
-cases of using the :paramref:`.Column.unique` and :paramref:`.Column.index`
+cases of using the :paramref:`_schema.Column.unique` and :paramref:`_schema.Column.index`
 parameters which create :class:`.UniqueConstraint` and :class:`.Index` objects
 without an explicit name being specified.
 
 The use case of alteration of existing tables and constraints can be handled
-by schema migration tools such as `Alembic <http://alembic.zzzcomputing.com/>`_.
+by schema migration tools such as `Alembic <https://alembic.sqlalchemy.org/>`_.
 However, neither Alembic nor SQLAlchemy currently create names for constraint
 objects where the name is otherwise unspecified, leading to the case where
 being able to alter existing constraints means that one must reverse-engineer
@@ -438,19 +447,22 @@ and :class:`.Index` objects, automated naming schemes can be constructed
 using events.  This approach has the advantage that constraints will get
 a consistent naming scheme without the need for explicit name parameters
 throughout the code, and also that the convention takes place just as well
-for those constraints and indexes produced by the :paramref:`.Column.unique`
-and :paramref:`.Column.index` parameters.  As of SQLAlchemy 0.9.2 this
+for those constraints and indexes produced by the :paramref:`_schema.Column.unique`
+and :paramref:`_schema.Column.index` parameters.  As of SQLAlchemy 0.9.2 this
 event-based approach is included, and can be configured using the argument
-:paramref:`.MetaData.naming_convention`.
+:paramref:`_schema.MetaData.naming_convention`.
 
-:paramref:`.MetaData.naming_convention` refers to a dictionary which accepts
+Configuring a Naming Convention for a MetaData Collection
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+:paramref:`_schema.MetaData.naming_convention` refers to a dictionary which accepts
 the :class:`.Index` class or individual :class:`.Constraint` classes as keys,
 and Python string templates as values.   It also accepts a series of
 string-codes as alternative keys, ``"fk"``, ``"pk"``,
 ``"ix"``, ``"ck"``, ``"uq"`` for foreign key, primary key, index,
 check, and unique constraint, respectively.  The string templates in this
 dictionary are used whenever a constraint or index is associated with this
-:class:`.MetaData` object that does not have an existing name given (including
+:class:`_schema.MetaData` object that does not have an existing name given (including
 one exception case where an existing name can be further embellished).
 
 An example naming convention that suits basic cases is as follows::
@@ -463,14 +475,14 @@ An example naming convention that suits basic cases is as follows::
       "pk": "pk_%(table_name)s"
     }
 
-    metadata = MetaData(naming_convention=convention)
+    metadata_obj = MetaData(naming_convention=convention)
 
 The above convention will establish names for all constraints within
-the target :class:`.MetaData` collection.
+the target :class:`_schema.MetaData` collection.
 For example, we can observe the name produced when we create an unnamed
 :class:`.UniqueConstraint`::
 
-    >>> user_table = Table('user', metadata,
+    >>> user_table = Table('user', metadata_obj,
     ...                 Column('id', Integer, primary_key=True),
     ...                 Column('name', String(30), nullable=False),
     ...                 UniqueConstraint('name')
@@ -478,10 +490,10 @@ For example, we can observe the name produced when we create an unnamed
     >>> list(user_table.constraints)[1].name
     'uq_user_name'
 
-This same feature takes effect even if we just use the :paramref:`.Column.unique`
+This same feature takes effect even if we just use the :paramref:`_schema.Column.unique`
 flag::
 
-    >>> user_table = Table('user', metadata,
+    >>> user_table = Table('user', metadata_obj,
     ...                  Column('id', Integer, primary_key=True),
     ...                  Column('name', String(30), nullable=False, unique=True)
     ...     )
@@ -499,22 +511,72 @@ will be explicit when a new migration script is generated::
 The above ``"uq_user_name"`` string was copied from the :class:`.UniqueConstraint`
 object that ``--autogenerate`` located in our metadata.
 
-The default value for :paramref:`.MetaData.naming_convention` handles
+The tokens available include ``%(table_name)s``, ``%(referred_table_name)s``,
+``%(column_0_name)s``, ``%(column_0_label)s``, ``%(column_0_key)s``,
+``%(referred_column_0_name)s``, and  ``%(constraint_name)s``, as well as
+multiple-column versions of each including ``%(column_0N_name)s``,
+``%(column_0_N_name)s``,  ``%(referred_column_0_N_name)s`` which render all
+column names separated with or without an underscore.  The documentation for
+:paramref:`_schema.MetaData.naming_convention` has further detail on each  of these
+conventions.
+
+.. _constraint_default_naming_convention:
+
+The Default Naming Convention
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The default value for :paramref:`_schema.MetaData.naming_convention` handles
 the long-standing SQLAlchemy behavior of assigning a name to a :class:`.Index`
-object that is created using the :paramref:`.Column.index` parameter::
+object that is created using the :paramref:`_schema.Column.index` parameter::
 
     >>> from sqlalchemy.sql.schema import DEFAULT_NAMING_CONVENTION
     >>> DEFAULT_NAMING_CONVENTION
     immutabledict({'ix': 'ix_%(column_0_label)s'})
 
-The tokens available include ``%(table_name)s``,
-``%(referred_table_name)s``, ``%(column_0_name)s``, ``%(column_0_label)s``,
-``%(column_0_key)s``,  ``%(referred_column_0_name)s``, and ``%(constraint_name)s``;
-the documentation for :paramref:`.MetaData.naming_convention` describes each
-individually.  New tokens can also be added, by specifying an additional
-token and a callable within the naming_convention dictionary.  For example,
-if we wanted to name our foreign key constraints using a GUID scheme,
-we could do that as follows::
+Truncation of Long Names
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When a generated name, particularly those that use the multiple-column tokens,
+is too long for the identifier length limit of the target database
+(for example, PostgreSQL has a limit of 63 characters), the name will be
+deterministically truncated using a 4-character suffix based on the md5
+hash of the long name.  For example, the naming convention below will
+generate very long names given the column names in use::
+
+    metadata_obj = MetaData(naming_convention={
+        "uq": "uq_%(table_name)s_%(column_0_N_name)s"
+    })
+
+    long_names = Table(
+        'long_names', metadata_obj,
+        Column('information_channel_code', Integer, key='a'),
+        Column('billing_convention_name', Integer, key='b'),
+        Column('product_identifier', Integer, key='c'),
+        UniqueConstraint('a', 'b', 'c')
+    )
+
+On the PostgreSQL dialect, names longer than 63 characters will be truncated
+as in the following example::
+
+    CREATE TABLE long_names (
+        information_channel_code INTEGER,
+        billing_convention_name INTEGER,
+        product_identifier INTEGER,
+        CONSTRAINT uq_long_names_information_channel_code_billing_conventi_a79e
+        UNIQUE (information_channel_code, billing_convention_name, product_identifier)
+    )
+
+The above suffix ``a79e`` is based on the md5 hash of the long name and will
+generate the same value every time to produce consistent names for a given
+schema.
+
+Creating Custom Tokens for Naming Conventions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+New tokens can also be added, by specifying an additional token
+and a callable within the naming_convention dictionary.  For example, if we
+wanted to name our foreign key constraints using a GUID scheme, we could do
+that as follows::
 
     import uuid
 
@@ -535,17 +597,17 @@ we could do that as follows::
         "fk": "fk_%(fk_guid)s",
     }
 
-Above, when we create a new :class:`.ForeignKeyConstraint`, we will get a
+Above, when we create a new :class:`_schema.ForeignKeyConstraint`, we will get a
 name as follows::
 
-    >>> metadata = MetaData(naming_convention=convention)
+    >>> metadata_obj = MetaData(naming_convention=convention)
 
-    >>> user_table = Table('user', metadata,
+    >>> user_table = Table('user', metadata_obj,
     ...         Column('id', Integer, primary_key=True),
     ...         Column('version', Integer, primary_key=True),
     ...         Column('data', String(30))
     ...     )
-    >>> address_table = Table('address', metadata,
+    >>> address_table = Table('address', metadata_obj,
     ...        Column('id', Integer, primary_key=True),
     ...        Column('user_id', Integer),
     ...        Column('user_version_id', Integer)
@@ -558,17 +620,20 @@ name as follows::
 
 .. seealso::
 
-    :paramref:`.MetaData.naming_convention` - for additional usage details
+    :paramref:`_schema.MetaData.naming_convention` - for additional usage details
     as well as a listing of all available naming components.
 
-    :ref:`alembic:tutorial_constraint_names` - in the Alembic documentation.
+    `The Importance of Naming Constraints <https://alembic.sqlalchemy.org/en/latest/naming.html>`_ - in the Alembic documentation.
 
-.. versionadded:: 0.9.2 Added the :paramref:`.MetaData.naming_convention` argument.
+
+.. versionadded:: 1.3.0 added multi-column naming tokens such as ``%(column_0_N_name)s``.
+   Generated names that go beyond the character limit for the target database will be
+   deterministically truncated.
 
 .. _naming_check_constraints:
 
 Naming CHECK Constraints
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 The :class:`.CheckConstraint` object is configured against an arbitrary
 SQL expression, which can have any number of columns present, and additionally
@@ -577,11 +642,11 @@ to use with :class:`.CheckConstraint` is one where we expect the object
 to have a name already, and we then enhance it with other convention elements.
 A typical convention is ``"ck_%(table_name)s_%(constraint_name)s"``::
 
-    metadata = MetaData(
+    metadata_obj = MetaData(
         naming_convention={"ck": "ck_%(table_name)s_%(constraint_name)s"}
     )
 
-    Table('foo', metadata,
+    Table('foo', metadata_obj,
         Column('value', Integer),
         CheckConstraint('value > 5', name='value_gt_5')
     )
@@ -594,29 +659,29 @@ The above table will produce the name ``ck_foo_value_gt_5``::
     )
 
 :class:`.CheckConstraint` also supports the ``%(columns_0_name)s``
-token; we can make use of this by ensuring we use a :class:`.Column` or
-:func:`.sql.expression.column` element within the constraint's expression,
+token; we can make use of this by ensuring we use a :class:`_schema.Column` or
+:func:`_expression.column` element within the constraint's expression,
 either by declaring the constraint separate from the table::
 
-    metadata = MetaData(
+    metadata_obj = MetaData(
         naming_convention={"ck": "ck_%(table_name)s_%(column_0_name)s"}
     )
 
-    foo = Table('foo', metadata,
+    foo = Table('foo', metadata_obj,
         Column('value', Integer)
     )
 
     CheckConstraint(foo.c.value > 5)
 
-or by using a :func:`.sql.expression.column` inline::
+or by using a :func:`_expression.column` inline::
 
     from sqlalchemy import column
 
-    metadata = MetaData(
+    metadata_obj = MetaData(
         naming_convention={"ck": "ck_%(table_name)s_%(column_0_name)s"}
     )
 
-    foo = Table('foo', metadata,
+    foo = Table('foo', metadata_obj,
         Column('value', Integer),
         CheckConstraint(column('value') > 5)
     )
@@ -640,14 +705,14 @@ structure of the expression will determine which column is noted as
 .. _naming_schematypes:
 
 Configuring Naming for Boolean, Enum, and other schema types
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The :class:`.SchemaType` class refers to type objects such as :class:`.Boolean`
 and :class:`.Enum` which generate a CHECK constraint accompanying the type.
 The name for the constraint here is most directly set up by sending
 the "name" parameter, e.g. :paramref:`.Boolean.name`::
 
-    Table('foo', metadata,
+    Table('foo', metadata_obj,
         Column('flag', Boolean(name='ck_foo_flag'))
     )
 
@@ -655,11 +720,11 @@ The naming convention feature may be combined with these types as well,
 normally by using a convention which includes ``%(constraint_name)s``
 and then applying a name to the type::
 
-    metadata = MetaData(
+    metadata_obj = MetaData(
         naming_convention={"ck": "ck_%(table_name)s_%(constraint_name)s"}
     )
 
-    Table('foo', metadata,
+    Table('foo', metadata_obj,
         Column('flag', Boolean(name='flag_bool'))
     )
 
@@ -683,11 +748,11 @@ The CHECK constraint may also make use of the ``column_0_name`` token,
 which works nicely with :class:`.SchemaType` since these constraints have
 only one column::
 
-    metadata = MetaData(
+    metadata_obj = MetaData(
         naming_convention={"ck": "ck_%(table_name)s_%(column_0_name)s"}
     )
 
-    Table('foo', metadata,
+    Table('foo', metadata_obj,
         Column('flag', Boolean())
     )
 
@@ -725,7 +790,6 @@ Constraints API
     :members:
     :inherited-members:
 
-
 .. autoclass:: PrimaryKeyConstraint
     :members:
     :inherited-members:
@@ -757,8 +821,8 @@ INDEX" is issued right after the create statements for the table:
 
 .. sourcecode:: python+sql
 
-    meta = MetaData()
-    mytable = Table('mytable', meta,
+    metadata_obj = MetaData()
+    mytable = Table('mytable', metadata_obj,
         # an indexed column, with index "ix_mytable_col1"
         Column('col1', Integer, index=True),
 
@@ -793,13 +857,13 @@ INDEX" is issued right after the create statements for the table:
     CREATE INDEX idx_col34 ON mytable (col3, col4){stop}
 
 Note in the example above, the :class:`.Index` construct is created
-externally to the table which it corresponds, using :class:`.Column`
+externally to the table which it corresponds, using :class:`_schema.Column`
 objects directly.  :class:`.Index` also supports
-"inline" definition inside the :class:`.Table`, using string names to
+"inline" definition inside the :class:`_schema.Table`, using string names to
 identify columns::
 
-    meta = MetaData()
-    mytable = Table('mytable', meta,
+    metadata_obj = MetaData()
+    mytable = Table('mytable', metadata_obj,
         Column('col1', Integer),
 
         Column('col2', Integer),
@@ -814,10 +878,6 @@ identify columns::
         Index('idx_col34', 'col3', 'col4', unique=True)
     )
 
-.. versionadded:: 0.7
-    Support of "inline" definition inside the :class:`.Table`
-    for :class:`.Index`\ .
-
 The :class:`~sqlalchemy.schema.Index` object also supports its own ``create()`` method:
 
 .. sourcecode:: python+sql
@@ -829,11 +889,11 @@ The :class:`~sqlalchemy.schema.Index` object also supports its own ``create()`` 
 .. _schema_indexes_functional:
 
 Functional Indexes
-~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~
 
 :class:`.Index` supports SQL and function expressions, as supported by the
 target backend.  To create an index against a column using a descending
-value, the :meth:`.ColumnElement.desc` modifier may be used::
+value, the :meth:`_expression.ColumnElement.desc` modifier may be used::
 
     from sqlalchemy import Index
 
@@ -845,9 +905,6 @@ a "case insensitive" index can be created using the ``lower()`` function::
     from sqlalchemy import func, Index
 
     Index('someindex', func.lower(mytable.c.somecol))
-
-.. versionadded:: 0.8 :class:`.Index` supports SQL expressions and functions
-   as well as plain columns.
 
 Index API
 ---------

@@ -1,13 +1,34 @@
-.. module:: sqlalchemy.orm
+.. _mapping_columns_toplevel:
+
+.. currentmodule:: sqlalchemy.orm
 
 Mapping Table Columns
 =====================
 
-The default behavior of :func:`~.orm.mapper` is to assemble all the columns in
-the mapped :class:`.Table` into mapped object attributes, each of which are
-named according to the name of the column itself (specifically, the ``key``
-attribute of :class:`.Column`).  This behavior can be
-modified in several ways.
+Introductory background on mapping to columns falls under the subject of
+:class:`.Table` configuration; the general form falls under one of three
+forms:
+
+* :ref:`orm_declarative_table` - :class:`.Column` objects are associated with a
+  :class:`.Table` as well as with an ORM mapping in one step by declaring
+  them inline as class attributes.
+* :ref:`orm_imperative_table_configuration` - :class:`.Column` objects are
+  associated directly with their :class:`.Table` object, as detailed at
+  :ref:`metadata_describing_toplevel`; the columns are then mapped by
+  the Declarative process by associating the :class:`.Table` with the
+  class to be mapped via the ``__table__`` attribute.
+* :ref:`orm_imperative_mapping` - like "Imperative Table", :class:`.Column`
+  objects are associated directly with their :class:`.Table` object; the
+  columns are then mapped by the Imperative process using
+  :meth:`_orm.registry.map_imperatively`.
+
+In all of the above cases, the :class:`_orm.mapper` constructor is ultimately
+invoked with a completed :class:`.Table` object passed as the selectable unit
+to be mapped. The behavior of :class:`_orm.mapper` then is to assemble all the
+columns in the mapped :class:`_schema.Table` into mapped object attributes,
+each of which are named according to the name of the column itself
+(specifically, the ``key`` attribute of :class:`_schema.Column`). This behavior
+can be modified in several ways.
 
 .. _mapper_column_distinct_names:
 
@@ -15,13 +36,14 @@ Naming Columns Distinctly from Attribute Names
 ----------------------------------------------
 
 A mapping by default shares the same name for a
-:class:`.Column` as that of the mapped attribute - specifically
-it matches the :attr:`.Column.key` attribute on :class:`.Column`, which
-by default is the same as the :attr:`.Column.name`.
+:class:`_schema.Column` as that of the mapped attribute - specifically
+it matches the :attr:`_schema.Column.key` attribute on :class:`_schema.Column`, which
+by default is the same as the :attr:`_schema.Column.name`.
 
 The name assigned to the Python attribute which maps to
-:class:`.Column` can be different from either :attr:`.Column.name` or :attr:`.Column.key`
-just by assigning it that way, as we illustrate here in a Declarative mapping::
+:class:`_schema.Column` can be different from either
+:attr:`_schema.Column.name` or :attr:`_schema.Column.key` just by assigning
+it that way, as we illustrate here in a Declarative mapping::
 
     class User(Base):
         __tablename__ = 'user'
@@ -31,7 +53,7 @@ just by assigning it that way, as we illustrate here in a Declarative mapping::
 Where above ``User.id`` resolves to a column named ``user_id``
 and ``User.name`` resolves to a column named ``user_name``.
 
-When mapping to an existing table, the :class:`.Column` object
+When mapping to an existing table, the :class:`_schema.Column` object
 can be referenced directly::
 
     class User(Base):
@@ -39,15 +61,15 @@ can be referenced directly::
         id = user_table.c.user_id
         name = user_table.c.user_name
 
-Or in a classical mapping, placed in the ``properties`` dictionary
-with the desired key::
+The corresponding technique for an :term:`imperative` mapping is
+to place the desired key in the :paramref:`_orm.mapper.properties`
+dictionary with the desired key::
 
-    mapper(User, user_table, properties={
+    mapper_registry.map_imperatively(User, user_table, properties={
        'id': user_table.c.user_id,
        'name': user_table.c.user_name,
     })
 
-In the next section we'll examine the usage of ``.key`` more closely.
 
 .. _mapper_automated_reflection_schemes:
 
@@ -55,64 +77,54 @@ Automating Column Naming Schemes from Reflected Tables
 ------------------------------------------------------
 
 In the previous section :ref:`mapper_column_distinct_names`, we showed how
-a :class:`.Column` explicitly mapped to a class can have a different attribute
-name than the column.  But what if we aren't listing out :class:`.Column`
-objects explicitly, and instead are automating the production of :class:`.Table`
-objects using reflection (e.g. as described in :ref:`metadata_reflection_toplevel`)?
-In this case we can make use of the :meth:`.DDLEvents.column_reflect` event
-to intercept the production of :class:`.Column` objects and provide them
-with the :attr:`.Column.key` of our choice::
+a :class:`_schema.Column` explicitly mapped to a class can have a different attribute
+name than the column.  But what if we aren't listing out :class:`_schema.Column`
+objects explicitly, and instead are automating the production of :class:`_schema.Table`
+objects using reflection (i.e. as described in :ref:`metadata_reflection_toplevel`)?
+In this case we can make use of the :meth:`_events.DDLEvents.column_reflect` event
+to intercept the production of :class:`_schema.Column` objects and provide them
+with the :attr:`_schema.Column.key` of our choice.   The event is most easily
+associated with the :class:`_schema.MetaData` object that's in use,
+such as below we use the one linked to the :class:`_orm.declarative_base`
+instance::
 
-    @event.listens_for(Table, "column_reflect")
+    @event.listens_for(Base.metadata, "column_reflect")
     def column_reflect(inspector, table, column_info):
         # set column.key = "attr_<lower_case_name>"
         column_info['key'] = "attr_%s" % column_info['name'].lower()
 
-With the above event, the reflection of :class:`.Column` objects will be intercepted
+With the above event, the reflection of :class:`_schema.Column` objects will be intercepted
 with our event that adds a new ".key" element, such as in a mapping as below::
 
     class MyClass(Base):
         __table__ = Table("some_table", Base.metadata,
-                    autoload=True, autoload_with=some_engine)
+                    autoload_with=some_engine)
 
-If we want to qualify our event to only react for the specific :class:`.MetaData`
-object above, we can check for it in our event::
+The approach also works with both the :class:`.DeferredReflection` base class
+as well as with the :ref:`automap_toplevel` extension.   For automap
+specifically, see the section :ref:`automap_intercepting_columns` for
+background.
 
-    @event.listens_for(Table, "column_reflect")
-    def column_reflect(inspector, table, column_info):
-        if table.metadata is Base.metadata:
-            # set column.key = "attr_<lower_case_name>"
-            column_info['key'] = "attr_%s" % column_info['name'].lower()
+.. seealso::
 
-.. _column_prefix:
+    :ref:`orm_declarative_reflected`
 
-Naming All Columns with a Prefix
---------------------------------
+    :meth:`_events.DDLEvents.column_reflect`
 
-A quick approach to prefix column names, typically when mapping
-to an existing :class:`.Table` object, is to use ``column_prefix``::
+    :ref:`automap_intercepting_columns` - in the :ref:`automap_toplevel` documentation
 
-    class User(Base):
-        __table__ = user_table
-        __mapper_args__ = {'column_prefix':'_'}
 
-The above will place attribute names such as ``_user_id``, ``_user_name``,
-``_password`` etc. on the mapped ``User`` class.
-
-This approach is uncommon in modern usage.   For dealing with reflected
-tables, a more flexible approach is to use that described in
-:ref:`mapper_automated_reflection_schemes`.
-
+.. _column_property_options:
 
 Using column_property for column level options
------------------------------------------------
+----------------------------------------------
 
-Options can be specified when mapping a :class:`.Column` using the
+Options can be specified when mapping a :class:`_schema.Column` using the
 :func:`.column_property` function.  This function
 explicitly creates the :class:`.ColumnProperty` used by the
-:func:`.mapper` to keep track of the :class:`.Column`; normally, the
+:func:`.mapper` to keep track of the :class:`_schema.Column`; normally, the
 :func:`.mapper` creates this automatically.   Using :func:`.column_property`,
-we can pass additional arguments about how we'd like the :class:`.Column`
+we can pass additional arguments about how we'd like the :class:`_schema.Column`
 to be mapped.   Below, we pass an option ``active_history``,
 which specifies that a change to this column's value should
 result in the former value being loaded first::
@@ -126,7 +138,7 @@ result in the former value being loaded first::
         name = column_property(Column(String(50)), active_history=True)
 
 :func:`.column_property` is also used to map a single attribute to
-multiple columns.  This use case arises when mapping to a :func:`~.expression.join`
+multiple columns.  This use case arises when mapping to a :func:`_expression.join`
 which has attributes which are equated to each other::
 
     class User(Base):
@@ -154,12 +166,81 @@ See examples of this usage at :ref:`mapper_sql_expressions`.
 
 .. autofunction:: column_property
 
+.. _mapper_primary_key:
+
+Mapping to an Explicit Set of Primary Key Columns
+-------------------------------------------------
+
+The :class:`.Mapper` construct in order to successfully map a table always
+requires that at least one column be identified as the "primary key" for
+that selectable.   This is so that when an ORM object is loaded or persisted,
+it can be placed in the :term:`identity map` with an appropriate
+:term:`identity key`.
+
+To support this use case, all :class:`.FromClause` objects (where
+:class:`.FromClause` is the common base for objects such as :class:`.Table`,
+:class:`.Join`, :class:`.Subquery`, etc.) have an attribute
+:attr:`.FromClause.primary_key` which returns a collection of those
+:class:`.Column` objects that indicate they are part of a "primary key",
+which is derived from each :class:`.Column` object being a member of a
+:class:`.PrimaryKeyConstraint` collection that's associated with the
+:class:`.Table` from which they ultimately derive.
+
+In those cases where the selectable being mapped does not include columns
+that are explicitly part of the primary key constraint on their parent table,
+a user-defined set of primary key columns must be defined.  The
+:paramref:`.mapper.primary_key` parameter is used for this purpose.
+
+Given the following example of a :ref:`Imperative Table <orm_imperative_table_configuration>`
+mapping against an existing :class:`.Table` object, as would occur in a scenario
+such as when the :class:`.Table` were :term:`reflected` from an existing
+database, where the table does not have any declared primary key, we may
+map such a table as in the following example::
+
+    from sqlalchemy import Column
+    from sqlalchemy import MetaData
+    from sqlalchemy import String
+    from sqlalchemy import Table
+    from sqlalchemy import UniqueConstraint
+    from sqlalchemy.orm import declarative_base
+
+
+    metadata = MetaData()
+    group_users = Table(
+        "group_users",
+        metadata,
+        Column("user_id", String(40), nullable=False),
+        Column("group_id", String(40), nullable=False),
+        UniqueConstraint("user_id", "group_id")
+    )
+
+
+    Base = declarative_base()
+
+
+    class GroupUsers(Base):
+        __table__ = group_users
+        __mapper_args__ = {
+            "primary_key": [group_users.c.user_id, group_users.c.group_id]
+        }
+
+Above, the ``group_users`` table is an association table of some kind
+with string columns ``user_id`` and ``group_id``, but no primary key is set up;
+instead, there is only a :class:`.UniqueConstraint` establishing that the
+two columns represent a unique key.   The :class:`.Mapper` does not automatically
+inspect unique constraints for primary keys; instead, we make use of the
+:paramref:`.mapper.primary_key` parameter, passing a collection of
+``[group_users.c.user_id, group_users.c.group_id]``, indicating that these two
+columns should be used in order to construct the identity key for instances
+of the ``GroupUsers`` class.
+
+
 .. _include_exclude_cols:
 
 Mapping a Subset of Table Columns
 ---------------------------------
 
-Sometimes, a :class:`.Table` object was made available using the
+Sometimes, a :class:`_schema.Table` object was made available using the
 reflection process described at :ref:`metadata_reflection` to load
 the table's structure from the database.
 For such a table that has lots of columns that don't need to be referenced
@@ -187,7 +268,7 @@ Similarly::
 all columns present except ``street``, ``city``, ``state``, and ``zip``.
 
 When this mapping is used, the columns that are not included will not be
-referenced in any SELECT statements emitted by :class:`.Query`, nor will there
+referenced in any SELECT statements emitted by :class:`_query.Query`, nor will there
 be any mapped attribute on the mapped class which represents the column;
 assigning an attribute of that name will have no effect beyond that of
 a normal Python attribute assignment.
@@ -195,7 +276,7 @@ a normal Python attribute assignment.
 In some cases, multiple columns may have the same name, such as when
 mapping to a join of two or more tables that share some column name.
 ``include_properties`` and ``exclude_properties`` can also accommodate
-:class:`.Column` objects to more accurately describe which columns
+:class:`_schema.Column` objects to more accurately describe which columns
 should be included or excluded::
 
     class UserAddress(Base):
@@ -207,16 +288,18 @@ should be included or excluded::
 
 .. note::
 
-   insert and update defaults configured on individual
-   :class:`.Column` objects, i.e. those described at :ref:`metadata_defaults`
-   including those configured by the ``default``, ``update``,
-   ``server_default`` and ``server_onupdate`` arguments, will continue to
-   function normally even if those :class:`.Column` objects are not mapped.
-   This is because in the case of ``default`` and ``update``, the
-   :class:`.Column` object is still present on the underlying
-   :class:`.Table`, thus allowing the default functions to take place when
-   the ORM emits an INSERT or UPDATE, and in the case of ``server_default``
-   and ``server_onupdate``, the relational database itself maintains these
-   functions.
+    insert and update defaults configured on individual :class:`_schema.Column`
+    objects, i.e. those described at :ref:`metadata_defaults` including those
+    configured by the :paramref:`_schema.Column.default`,
+    :paramref:`_schema.Column.onupdate`, :paramref:`_schema.Column.server_default` and
+    :paramref:`_schema.Column.server_onupdate` parameters, will continue to function
+    normally even if those :class:`_schema.Column` objects are not mapped. This is
+    because in the case of :paramref:`_schema.Column.default` and
+    :paramref:`_schema.Column.onupdate`, the :class:`_schema.Column` object is still present
+    on the underlying :class:`_schema.Table`, thus allowing the default functions to
+    take place when the ORM emits an INSERT or UPDATE, and in the case of
+    :paramref:`_schema.Column.server_default` and :paramref:`_schema.Column.server_onupdate`,
+    the relational database itself emits these defaults as a server side
+    behavior.
 
 

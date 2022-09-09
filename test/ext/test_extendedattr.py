@@ -1,18 +1,28 @@
-from sqlalchemy.testing import eq_, assert_raises, assert_raises_message, ne_
-from sqlalchemy import util
 import sqlalchemy as sa
-from sqlalchemy.orm import class_mapper
-from sqlalchemy.orm import attributes
-from sqlalchemy.orm.attributes import set_attribute, \
-    get_attribute, del_attribute
-from sqlalchemy.orm.instrumentation import is_instrumented
-from sqlalchemy.orm import clear_mappers
-from sqlalchemy.testing import fixtures
-from sqlalchemy.ext import instrumentation
-from sqlalchemy.orm.instrumentation import register_class, manager_of_class
-from sqlalchemy.testing.util import decorator
-from sqlalchemy.orm import events
+from sqlalchemy import Column
 from sqlalchemy import event
+from sqlalchemy import Integer
+from sqlalchemy import Table
+from sqlalchemy import util
+from sqlalchemy.ext import instrumentation
+from sqlalchemy.orm import attributes
+from sqlalchemy.orm import class_mapper
+from sqlalchemy.orm import clear_mappers
+from sqlalchemy.orm import events
+from sqlalchemy.orm.attributes import del_attribute
+from sqlalchemy.orm.attributes import get_attribute
+from sqlalchemy.orm.attributes import set_attribute
+from sqlalchemy.orm.instrumentation import is_instrumented
+from sqlalchemy.orm.instrumentation import manager_of_class
+from sqlalchemy.orm.instrumentation import register_class
+from sqlalchemy.testing import assert_raises
+from sqlalchemy.testing import assert_raises_message
+from sqlalchemy.testing import eq_
+from sqlalchemy.testing import fixtures
+from sqlalchemy.testing import is_
+from sqlalchemy.testing import is_not
+from sqlalchemy.testing import ne_
+from sqlalchemy.testing.util import decorator
 
 
 @decorator
@@ -27,12 +37,11 @@ def modifies_instrumentation_finders(fn, *args, **kw):
 
 class _ExtBase(object):
     @classmethod
-    def teardown_class(cls):
+    def teardown_test_class(cls):
         instrumentation._reinstall_default_lookups()
 
 
 class MyTypesManager(instrumentation.InstrumentationManager):
-
     def instrument_attribute(self, class_, key, attr):
         pass
 
@@ -49,13 +58,13 @@ class MyTypesManager(instrumentation.InstrumentationManager):
         return instance._goofy_dict
 
     def initialize_instance_dict(self, class_, instance):
-        instance.__dict__['_goofy_dict'] = {}
+        instance.__dict__["_goofy_dict"] = {}
 
     def install_state(self, class_, instance, state):
-        instance.__dict__['_my_state'] = state
+        instance.__dict__["_my_state"] = state
 
     def state_getter(self, class_):
-        return lambda instance: instance.__dict__['_my_state']
+        return lambda instance: instance.__dict__["_my_state"]
 
 
 class MyListLike(list):
@@ -68,6 +77,7 @@ class MyListLike(list):
         if _sa_initiator is not False:
             self._sa_adapter.fire_append_event(item, _sa_initiator)
         list.append(self, item)
+
     append = _sa_appender
 
     def _sa_remover(self, item, _sa_initiator=None):
@@ -75,21 +85,64 @@ class MyListLike(list):
         if _sa_initiator is not False:
             self._sa_adapter.fire_remove_event(item, _sa_initiator)
         list.remove(self, item)
+
     remove = _sa_remover
 
 
 MyBaseClass, MyClass = None, None
 
 
-class UserDefinedExtensionTest(_ExtBase, fixtures.ORMTest):
+class DisposeTest(_ExtBase, fixtures.TestBase):
+    def test_unregister(self, registry):
+        class MyClassState(instrumentation.InstrumentationManager):
+            def manage(self, class_, manager):
+                setattr(class_, "xyz", manager)
 
+            def unregister(self, class_, manager):
+                delattr(class_, "xyz")
+
+            def manager_getter(self, class_):
+                def get(cls):
+                    return cls.xyz
+
+                return get
+
+        class MyClass(object):
+            __sa_instrumentation_manager__ = MyClassState
+
+        assert attributes.manager_of_class(MyClass) is None
+
+        t = Table(
+            "my_table",
+            registry.metadata,
+            Column("id", Integer, primary_key=True),
+        )
+
+        registry.map_imperatively(MyClass, t)
+
+        manager = attributes.manager_of_class(MyClass)
+        is_not(manager, None)
+        is_(manager, MyClass.xyz)
+
+        registry.configure()
+
+        registry.dispose()
+
+        manager = attributes.manager_of_class(MyClass)
+        is_(manager, None)
+
+        assert not hasattr(MyClass, "xyz")
+
+
+class UserDefinedExtensionTest(_ExtBase, fixtures.ORMTest):
     @classmethod
-    def setup_class(cls):
+    def setup_test_class(cls):
         global MyBaseClass, MyClass
 
         class MyBaseClass(object):
-            __sa_instrumentation_manager__ = \
+            __sa_instrumentation_manager__ = (
                 instrumentation.InstrumentationManager
+            )
 
         class MyClass(object):
 
@@ -99,11 +152,12 @@ class UserDefinedExtensionTest(_ExtBase, fixtures.ORMTest):
                 return MyTypesManager(cls)
 
             __sa_instrumentation_manager__ = staticmethod(
-                __sa_instrumentation_manager__)
+                __sa_instrumentation_manager__
+            )
 
             # This proves SA can handle a class with non-string dict keys
-            if not util.pypy and not util.jython:
-                locals()[42] = 99   # Don't remove this line!
+            if util.cpython:
+                locals()[42] = 99  # Don't remove this line!
 
             def __init__(self, **kwargs):
                 for k in kwargs:
@@ -136,7 +190,7 @@ class UserDefinedExtensionTest(_ExtBase, fixtures.ORMTest):
                 else:
                     del self._goofy_dict[key]
 
-    def teardown(self):
+    def teardown_test(self):
         clear_mappers()
 
     def test_instance_dict(self):
@@ -145,104 +199,124 @@ class UserDefinedExtensionTest(_ExtBase, fixtures.ORMTest):
 
         register_class(User)
         attributes.register_attribute(
-            User, 'user_id', uselist=False, useobject=False)
+            User, "user_id", uselist=False, useobject=False
+        )
         attributes.register_attribute(
-            User, 'user_name', uselist=False, useobject=False)
+            User, "user_name", uselist=False, useobject=False
+        )
         attributes.register_attribute(
-            User, 'email_address', uselist=False, useobject=False)
+            User, "email_address", uselist=False, useobject=False
+        )
 
         u = User()
         u.user_id = 7
-        u.user_name = 'john'
-        u.email_address = 'lala@123.com'
+        u.user_name = "john"
+        u.email_address = "lala@123.com"
         eq_(
             u.__dict__,
             {
-                '_my_state': u._my_state,
-                '_goofy_dict': {
-                    'user_id': 7, 'user_name': 'john',
-                    'email_address': 'lala@123.com'}}
+                "_my_state": u._my_state,
+                "_goofy_dict": {
+                    "user_id": 7,
+                    "user_name": "john",
+                    "email_address": "lala@123.com",
+                },
+            },
         )
 
     def test_basic(self):
         for base in (object, MyBaseClass, MyClass):
+
             class User(base):
                 pass
 
             register_class(User)
             attributes.register_attribute(
-                User, 'user_id', uselist=False, useobject=False)
+                User, "user_id", uselist=False, useobject=False
+            )
             attributes.register_attribute(
-                User, 'user_name', uselist=False, useobject=False)
+                User, "user_name", uselist=False, useobject=False
+            )
             attributes.register_attribute(
-                User, 'email_address', uselist=False, useobject=False)
+                User, "email_address", uselist=False, useobject=False
+            )
 
             u = User()
             u.user_id = 7
-            u.user_name = 'john'
-            u.email_address = 'lala@123.com'
+            u.user_name = "john"
+            u.email_address = "lala@123.com"
 
             eq_(u.user_id, 7)
             eq_(u.user_name, "john")
             eq_(u.email_address, "lala@123.com")
             attributes.instance_state(u)._commit_all(
-                attributes.instance_dict(u))
+                attributes.instance_dict(u)
+            )
             eq_(u.user_id, 7)
             eq_(u.user_name, "john")
             eq_(u.email_address, "lala@123.com")
 
-            u.user_name = 'heythere'
-            u.email_address = 'foo@bar.com'
+            u.user_name = "heythere"
+            u.email_address = "foo@bar.com"
             eq_(u.user_id, 7)
             eq_(u.user_name, "heythere")
             eq_(u.email_address, "foo@bar.com")
 
     def test_deferred(self):
         for base in (object, MyBaseClass, MyClass):
+
             class Foo(base):
                 pass
 
-            data = {'a': 'this is a', 'b': 12}
+            data = {"a": "this is a", "b": 12}
 
-            def loader(state, keys):
+            def loader(state, keys, passive):
                 for k in keys:
                     state.dict[k] = data[k]
                 return attributes.ATTR_WAS_SET
 
             manager = register_class(Foo)
-            manager.deferred_scalar_loader = loader
+            manager.expired_attribute_loader = loader
             attributes.register_attribute(
-                Foo, 'a', uselist=False, useobject=False)
+                Foo, "a", uselist=False, useobject=False
+            )
             attributes.register_attribute(
-                Foo, 'b', uselist=False, useobject=False)
+                Foo, "b", uselist=False, useobject=False
+            )
 
             if base is object:
-                assert Foo not in \
+                assert Foo not in (
                     instrumentation._instrumentation_factory._state_finders
+                )
             else:
-                assert Foo in \
+                assert Foo in (
                     instrumentation._instrumentation_factory._state_finders
+                )
 
             f = Foo()
             attributes.instance_state(f)._expire(
-                attributes.instance_dict(f), set())
+                attributes.instance_dict(f), set()
+            )
             eq_(f.a, "this is a")
             eq_(f.b, 12)
 
             f.a = "this is some new a"
             attributes.instance_state(f)._expire(
-                attributes.instance_dict(f), set())
+                attributes.instance_dict(f), set()
+            )
             eq_(f.a, "this is a")
             eq_(f.b, 12)
 
             attributes.instance_state(f)._expire(
-                attributes.instance_dict(f), set())
+                attributes.instance_dict(f), set()
+            )
             f.a = "this is another new a"
             eq_(f.a, "this is another new a")
             eq_(f.b, 12)
 
             attributes.instance_state(f)._expire(
-                attributes.instance_dict(f), set())
+                attributes.instance_dict(f), set()
+            )
             eq_(f.a, "this is a")
             eq_(f.b, 12)
 
@@ -251,7 +325,8 @@ class UserDefinedExtensionTest(_ExtBase, fixtures.ORMTest):
             eq_(f.b, 12)
 
             attributes.instance_state(f)._commit_all(
-                attributes.instance_dict(f))
+                attributes.instance_dict(f)
+            )
             eq_(f.a, None)
             eq_(f.b, 12)
 
@@ -259,6 +334,7 @@ class UserDefinedExtensionTest(_ExtBase, fixtures.ORMTest):
         """tests that attributes are polymorphic"""
 
         for base in (object, MyBaseClass, MyClass):
+
             class Foo(base):
                 pass
 
@@ -276,25 +352,27 @@ class UserDefinedExtensionTest(_ExtBase, fixtures.ORMTest):
 
             def func3(state, passive):
                 return "this is the shared attr"
-            attributes.register_attribute(Foo, 'element',
-                                          uselist=False, callable_=func1,
-                                          useobject=True)
-            attributes.register_attribute(Foo, 'element2',
-                                          uselist=False, callable_=func3,
-                                          useobject=True)
-            attributes.register_attribute(Bar, 'element',
-                                          uselist=False, callable_=func2,
-                                          useobject=True)
+
+            attributes.register_attribute(
+                Foo, "element", uselist=False, callable_=func1, useobject=True
+            )
+            attributes.register_attribute(
+                Foo, "element2", uselist=False, callable_=func3, useobject=True
+            )
+            attributes.register_attribute(
+                Bar, "element", uselist=False, callable_=func2, useobject=True
+            )
 
             x = Foo()
             y = Bar()
-            assert x.element == 'this is the foo attr'
-            assert y.element == 'this is the bar attr', y.element
-            assert x.element2 == 'this is the shared attr'
-            assert y.element2 == 'this is the shared attr'
+            assert x.element == "this is the foo attr"
+            assert y.element == "this is the bar attr", y.element
+            assert x.element2 == "this is the shared attr"
+            assert y.element2 == "this is the shared attr"
 
     def test_collection_with_backref(self):
         for base in (object, MyBaseClass, MyClass):
+
             class Post(base):
                 pass
 
@@ -304,11 +382,21 @@ class UserDefinedExtensionTest(_ExtBase, fixtures.ORMTest):
             register_class(Post)
             register_class(Blog)
             attributes.register_attribute(
-                Post, 'blog', uselist=False,
-                backref='posts', trackparent=True, useobject=True)
+                Post,
+                "blog",
+                uselist=False,
+                backref="posts",
+                trackparent=True,
+                useobject=True,
+            )
             attributes.register_attribute(
-                Blog, 'posts', uselist=True,
-                backref='blog', trackparent=True, useobject=True)
+                Blog,
+                "posts",
+                uselist=True,
+                backref="blog",
+                trackparent=True,
+                useobject=True,
+            )
             b = Blog()
             (p1, p2, p3) = (Post(), Post(), Post())
             b.posts.append(p1)
@@ -334,6 +422,7 @@ class UserDefinedExtensionTest(_ExtBase, fixtures.ORMTest):
 
     def test_history(self):
         for base in (object, MyBaseClass, MyClass):
+
             class Foo(base):
                 pass
 
@@ -343,73 +432,93 @@ class UserDefinedExtensionTest(_ExtBase, fixtures.ORMTest):
             register_class(Foo)
             register_class(Bar)
             attributes.register_attribute(
-                Foo, "name", uselist=False, useobject=False)
+                Foo, "name", uselist=False, useobject=False
+            )
             attributes.register_attribute(
-                Foo, "bars", uselist=True, trackparent=True, useobject=True)
+                Foo, "bars", uselist=True, trackparent=True, useobject=True
+            )
             attributes.register_attribute(
-                Bar, "name", uselist=False, useobject=False)
+                Bar, "name", uselist=False, useobject=False
+            )
 
             f1 = Foo()
-            f1.name = 'f1'
+            f1.name = "f1"
 
             eq_(
                 attributes.get_state_history(
-                    attributes.instance_state(f1), 'name'),
-                (['f1'], (), ()))
+                    attributes.instance_state(f1), "name"
+                ),
+                (["f1"], (), ()),
+            )
 
             b1 = Bar()
-            b1.name = 'b1'
+            b1.name = "b1"
             f1.bars.append(b1)
             eq_(
                 attributes.get_state_history(
-                    attributes.instance_state(f1), 'bars'),
-                ([b1], [], []))
+                    attributes.instance_state(f1), "bars"
+                ),
+                ([b1], [], []),
+            )
 
             attributes.instance_state(f1)._commit_all(
-                attributes.instance_dict(f1))
+                attributes.instance_dict(f1)
+            )
             attributes.instance_state(b1)._commit_all(
-                attributes.instance_dict(b1))
+                attributes.instance_dict(b1)
+            )
 
             eq_(
                 attributes.get_state_history(
-                    attributes.instance_state(f1),
-                    'name'),
-                ((), ['f1'], ()))
+                    attributes.instance_state(f1), "name"
+                ),
+                ((), ["f1"], ()),
+            )
             eq_(
                 attributes.get_state_history(
-                    attributes.instance_state(f1),
-                    'bars'),
-                ((), [b1], ()))
+                    attributes.instance_state(f1), "bars"
+                ),
+                ((), [b1], ()),
+            )
 
-            f1.name = 'f1mod'
+            f1.name = "f1mod"
             b2 = Bar()
-            b2.name = 'b2'
+            b2.name = "b2"
             f1.bars.append(b2)
             eq_(
                 attributes.get_state_history(
-                    attributes.instance_state(f1), 'name'),
-                (['f1mod'], (), ['f1']))
+                    attributes.instance_state(f1), "name"
+                ),
+                (["f1mod"], (), ["f1"]),
+            )
             eq_(
                 attributes.get_state_history(
-                    attributes.instance_state(f1), 'bars'),
-                ([b2], [b1], []))
+                    attributes.instance_state(f1), "bars"
+                ),
+                ([b2], [b1], []),
+            )
             f1.bars.remove(b1)
             eq_(
                 attributes.get_state_history(
-                    attributes.instance_state(f1), 'bars'),
-                ([b2], [], [b1]))
+                    attributes.instance_state(f1), "bars"
+                ),
+                ([b2], [], [b1]),
+            )
 
     def test_null_instrumentation(self):
         class Foo(MyBaseClass):
             pass
+
         register_class(Foo)
         attributes.register_attribute(
-            Foo, "name", uselist=False, useobject=False)
+            Foo, "name", uselist=False, useobject=False
+        )
         attributes.register_attribute(
-            Foo, "bars", uselist=True, trackparent=True, useobject=True)
+            Foo, "bars", uselist=True, trackparent=True, useobject=True
+        )
 
-        assert Foo.name == attributes.manager_of_class(Foo)['name']
-        assert Foo.bars == attributes.manager_of_class(Foo)['bars']
+        assert Foo.name == attributes.manager_of_class(Foo)["name"]
+        assert Foo.bars == attributes.manager_of_class(Foo)["bars"]
 
     def test_alternate_finders(self):
         """Ensure the generic finder front-end deals with edge cases."""
@@ -428,10 +537,10 @@ class UserDefinedExtensionTest(_ExtBase, fixtures.ORMTest):
         assert instrumentation.manager_of_class(None) is None
 
         assert attributes.instance_state(k) is not None
-        assert_raises((AttributeError, KeyError),
-                      attributes.instance_state, u)
-        assert_raises((AttributeError, KeyError),
-                      attributes.instance_state, None)
+        assert_raises((AttributeError, KeyError), attributes.instance_state, u)
+        assert_raises(
+            (AttributeError, KeyError), attributes.instance_state, None
+        )
 
     def test_unmapped_not_type_error(self):
         """extension version of the same test in test_mapper.
@@ -441,7 +550,8 @@ class UserDefinedExtensionTest(_ExtBase, fixtures.ORMTest):
         assert_raises_message(
             sa.exc.ArgumentError,
             "Class object expected, got '5'.",
-            class_mapper, 5
+            class_mapper,
+            5,
         )
 
     def test_unmapped_not_type_error_iter_ok(self):
@@ -452,31 +562,28 @@ class UserDefinedExtensionTest(_ExtBase, fixtures.ORMTest):
         assert_raises_message(
             sa.exc.ArgumentError,
             r"Class object expected, got '\(5, 6\)'.",
-            class_mapper, (5, 6)
+            class_mapper,
+            (5, 6),
         )
 
 
 class FinderTest(_ExtBase, fixtures.ORMTest):
-
     def test_standard(self):
         class A(object):
             pass
 
         register_class(A)
 
-        eq_(
-            type(manager_of_class(A)),
-            instrumentation.ClassManager)
+        eq_(type(manager_of_class(A)), instrumentation.ClassManager)
 
     def test_nativeext_interfaceexact(self):
         class A(object):
-            __sa_instrumentation_manager__ = \
+            __sa_instrumentation_manager__ = (
                 instrumentation.InstrumentationManager
+            )
 
         register_class(A)
-        ne_(
-            type(manager_of_class(A)),
-            instrumentation.ClassManager)
+        ne_(type(manager_of_class(A)), instrumentation.ClassManager)
 
     def test_nativeext_submanager(self):
         class Mine(instrumentation.ClassManager):
@@ -514,60 +621,72 @@ class FinderTest(_ExtBase, fixtures.ORMTest):
         instrumentation.instrumentation_finders.insert(0, find)
         register_class(A)
 
-        eq_(
-            type(manager_of_class(A)),
-            instrumentation.ClassManager)
+        eq_(type(manager_of_class(A)), instrumentation.ClassManager)
 
 
 class InstrumentationCollisionTest(_ExtBase, fixtures.ORMTest):
-
     def test_none(self):
         class A(object):
             pass
+
         register_class(A)
 
-        mgr_factory = lambda cls: instrumentation.ClassManager(cls)
+        def mgr_factory(cls):
+            return instrumentation.ClassManager(cls)
 
         class B(object):
             __sa_instrumentation_manager__ = staticmethod(mgr_factory)
+
         register_class(B)
 
         class C(object):
             __sa_instrumentation_manager__ = instrumentation.ClassManager
+
         register_class(C)
 
     def test_single_down(self):
         class A(object):
             pass
+
         register_class(A)
 
-        mgr_factory = lambda cls: instrumentation.ClassManager(cls)
+        def mgr_factory(cls):
+            return instrumentation.ClassManager(cls)
 
         class B(A):
             __sa_instrumentation_manager__ = staticmethod(mgr_factory)
 
         assert_raises_message(
-            TypeError, "multiple instrumentation implementations",
-            register_class, B)
+            TypeError,
+            "multiple instrumentation implementations",
+            register_class,
+            B,
+        )
 
     def test_single_up(self):
-
         class A(object):
             pass
+
         # delay registration
 
-        mgr_factory = lambda cls: instrumentation.ClassManager(cls)
+        def mgr_factory(cls):
+            return instrumentation.ClassManager(cls)
 
         class B(A):
             __sa_instrumentation_manager__ = staticmethod(mgr_factory)
+
         register_class(B)
 
         assert_raises_message(
-            TypeError, "multiple instrumentation implementations",
-            register_class, A)
+            TypeError,
+            "multiple instrumentation implementations",
+            register_class,
+            A,
+        )
 
     def test_diamond_b1(self):
-        mgr_factory = lambda cls: instrumentation.ClassManager(cls)
+        def mgr_factory(cls):
+            return instrumentation.ClassManager(cls)
 
         class A(object):
             pass
@@ -582,11 +701,15 @@ class InstrumentationCollisionTest(_ExtBase, fixtures.ORMTest):
             pass
 
         assert_raises_message(
-            TypeError, "multiple instrumentation implementations",
-            register_class, B1)
+            TypeError,
+            "multiple instrumentation implementations",
+            register_class,
+            B1,
+        )
 
     def test_diamond_b2(self):
-        mgr_factory = lambda cls: instrumentation.ClassManager(cls)
+        def mgr_factory(cls):
+            return instrumentation.ClassManager(cls)
 
         class A(object):
             pass
@@ -602,11 +725,15 @@ class InstrumentationCollisionTest(_ExtBase, fixtures.ORMTest):
 
         register_class(B2)
         assert_raises_message(
-            TypeError, "multiple instrumentation implementations",
-            register_class, B1)
+            TypeError,
+            "multiple instrumentation implementations",
+            register_class,
+            B1,
+        )
 
     def test_diamond_c_b(self):
-        mgr_factory = lambda cls: instrumentation.ClassManager(cls)
+        def mgr_factory(cls):
+            return instrumentation.ClassManager(cls)
 
         class A(object):
             pass
@@ -623,8 +750,11 @@ class InstrumentationCollisionTest(_ExtBase, fixtures.ORMTest):
         register_class(C)
 
         assert_raises_message(
-            TypeError, "multiple instrumentation implementations",
-            register_class, B1)
+            TypeError,
+            "multiple instrumentation implementations",
+            register_class,
+            B1,
+        )
 
 
 class ExtendedEventsTest(_ExtBase, fixtures.ORMTest):
@@ -640,7 +770,8 @@ class ExtendedEventsTest(_ExtBase, fixtures.ORMTest):
             dispatch = event.dispatcher(MyEvents)
 
         instrumentation.instrumentation_finders.insert(
-            0, lambda cls: MyClassManager)
+            0, lambda cls: MyClassManager
+        )
 
         class A(object):
             pass

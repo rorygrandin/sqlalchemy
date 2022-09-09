@@ -10,8 +10,8 @@ It's helpful to know the states which an instance can have within a session:
 
 * **Transient** - an instance that's not in a session, and is not saved to the
   database; i.e. it has no database identity. The only relationship such an
-  object has to the ORM is that its class has a ``mapper()`` associated with
-  it.
+  object has to the ORM is that its class has a :class:`_orm.Mapper` associated
+  with it.
 
 * **Pending** - when you :meth:`~.Session.add` a transient
   instance, it becomes pending. It still wasn't actually flushed to the
@@ -50,7 +50,19 @@ Getting the Current State of an Object
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The actual state of any mapped object can be viewed at any time using
-the :func:`.inspect` system::
+the :func:`_sa.inspect` function on a mapped instance; this function will
+return the corresponding :class:`.InstanceState` object which manages the
+internal ORM state for the object.  :class:`.InstanceState` provides, among
+other accessors, boolean attributes indicating the persistence state
+of the object, including:
+
+* :attr:`.InstanceState.transient`
+* :attr:`.InstanceState.pending`
+* :attr:`.InstanceState.persistent`
+* :attr:`.InstanceState.deleted`
+* :attr:`.InstanceState.detached`
+
+E.g.::
 
   >>> from sqlalchemy import inspect
   >>> insp = inspect(my_object)
@@ -59,15 +71,8 @@ the :func:`.inspect` system::
 
 .. seealso::
 
-    :attr:`.InstanceState.transient`
-
-    :attr:`.InstanceState.pending`
-
-    :attr:`.InstanceState.persistent`
-
-    :attr:`.InstanceState.deleted`
-
-    :attr:`.InstanceState.detached`
+  :ref:`orm_mapper_inspection_instancestate` - further examples of
+  :class:`.InstanceState`
 
 .. _session_attributes:
 
@@ -204,11 +209,14 @@ When given an instance, it follows these steps:
   key if not located locally.
 * If the given instance has no primary key, or if no instance can be found
   with the primary key given, a new instance is created.
-* The state of the given instance is then copied onto the located/newly
-  created instance.    For attributes which are present on the source
-  instance, the value is transferred to the target instance.  For mapped
-  attributes which aren't present on the source, the attribute is
-  expired on the target instance, discarding its existing value.
+* The state of the given instance is then copied onto the located/newly created
+  instance. For attribute values which are present on the source instance, the
+  value is transferred to the target instance. For attribute values that aren't
+  present on the source instance, the corresponding attribute on the target
+  instance is :term:`expired` from memory, which discards any locally
+  present value from the target instance for that attribute, but no
+  direct modification is made to the database-persisted value for that
+  attribute.
 
   If the ``load=True`` flag is left at its default,
   this copy process emits events and will load the target object's
@@ -254,8 +262,8 @@ new session. Here's some examples:
   In the caching use case, it's common to use the ``load=False``
   flag to remove the overhead of reconciling the object's state
   with the database.   There's also a "bulk" version of
-  :meth:`~.Session.merge` called :meth:`~.Query.merge_result`
-  that was designed to work with cache-extended :class:`.Query`
+  :meth:`~.Session.merge` called :meth:`_query.Query.merge_result`
+  that was designed to work with cache-extended :class:`_query.Query`
   objects - see the section :ref:`examples_caching`.
 
 * An application wants to transfer the state of a series of objects
@@ -332,15 +340,15 @@ and made our ``a1`` object pending, as though we had added it.   Now we have
 
 Above, our ``a1`` is already pending in the session. The
 subsequent :meth:`~.Session.merge` operation essentially
-does nothing. Cascade can be configured via the :paramref:`~.relationship.cascade`
-option on :func:`.relationship`, although in this case it
+does nothing. Cascade can be configured via the :paramref:`_orm.relationship.cascade`
+option on :func:`_orm.relationship`, although in this case it
 would mean removing the ``save-update`` cascade from the
 ``User.addresses`` relationship - and usually, that behavior
 is extremely convenient.  The solution here would usually be to not assign
 ``a1.user`` to an object already persistent in the target
 session.
 
-The ``cascade_backrefs=False`` option of :func:`.relationship`
+The ``cascade_backrefs=False`` option of :func:`_orm.relationship`
 will also prevent the ``Address`` from
 being added to the session via the ``a1.user = u1`` assignment.
 
@@ -349,27 +357,15 @@ Further detail on cascade operation is at :ref:`unitofwork_cascades`.
 Another example of unexpected state::
 
     >>> a1 = Address(id=existing_a1.id, user_id=u1.id)
-    >>> assert a1.user is None
-    >>> True
+    >>> a1.user = None
     >>> a1 = session.merge(a1)
     >>> session.commit()
     sqlalchemy.exc.IntegrityError: (IntegrityError) address.user_id
     may not be NULL
 
-Here, we accessed a1.user, which returned its default value
-of ``None``, which as a result of this access, has been placed in the ``__dict__`` of
-our object ``a1``.  Normally, this operation creates no change event,
-so the ``user_id`` attribute takes precedence during a
-flush.  But when we merge the ``Address`` object into the session, the operation
-is equivalent to::
-
-    >>> existing_a1.id = existing_a1.id
-    >>> existing_a1.user_id = u1.id
-    >>> existing_a1.user = None
-
-Where above, both ``user_id`` and ``user`` are assigned to, and change events
-are emitted for both.  The ``user`` association
-takes precedence, and None is applied to ``user_id``, causing a failure.
+Above, the assignment of ``user`` takes precedence over the foreign key
+assignment of ``user_id``, with the end result that ``None`` is applied
+to ``user_id``, causing a failure.
 
 Most :meth:`~.Session.merge` issues can be examined by first checking -
 is the object prematurely in the session ?
@@ -439,7 +435,7 @@ where ``id`` and ``name`` refer to those columns in the database.
 ``_sa_instance_state`` is a non-database-persisted value used by SQLAlchemy
 internally (it refers to the :class:`.InstanceState` for the instance.
 While not directly relevant to this section, if we want to get at it,
-we should use the :func:`.inspect` function to access it).
+we should use the :func:`_sa.inspect` function to access it).
 
 At this point, the state in our ``User`` object matches that of the loaded
 database row.  But upon expiring the object using a method such as
@@ -506,6 +502,12 @@ attributes to be marked as expired::
     # expire only attributes obj1.attr1, obj1.attr2
     session.expire(obj1, ['attr1', 'attr2'])
 
+The :meth:`.Session.expire_all` method allows us to essentially call
+:meth:`.Session.expire` on all objects contained within the :class:`.Session`
+at once::
+
+    session.expire_all()
+
 The :meth:`~.Session.refresh` method has a similar interface, but instead
 of expiring, it emits an immediate SELECT for the object's row immediately::
 
@@ -519,11 +521,26 @@ be that of a column-mapped attribute::
     # reload obj1.attr1, obj1.attr2
     session.refresh(obj1, ['attr1', 'attr2'])
 
-The :meth:`.Session.expire_all` method allows us to essentially call
-:meth:`.Session.expire` on all objects contained within the :class:`.Session`
-at once::
+.. tip::
 
-    session.expire_all()
+    An alternative method of refreshing which is often more flexible is to
+    use the :ref:`orm_queryguide_populate_existing` feature of the ORM,
+    available for :term:`2.0 style` queries with :func:`_sql.select` as well
+    as from the :meth:`_orm.Query.populate_existing` method of :class:`_orm.Query`
+    within :term:`1.x style` queries.  Using this execution option,
+    all of the ORM objects returned in the result set of the statement
+    will be refreshed with data from the database::
+
+        stmt = (
+            select(User).
+            execution_options(populate_existing=True).
+            where((User.name.in_(['a', 'b', 'c']))
+        )
+        for user in session.execute(stmt).scalars():
+            print(user)  # will be refreshed for those columns that came back from the query
+
+    See :ref:`orm_queryguide_populate_existing` for further detail.
+
 
 What Actually Loads
 ~~~~~~~~~~~~~~~~~~~
@@ -533,26 +550,26 @@ or loaded with :meth:`~.Session.refresh` varies based on several factors, includ
 
 * The load of expired attributes is triggered from **column-mapped attributes only**.
   While any kind of attribute can be marked as expired, including a
-  :func:`.relationship` - mapped attribute, accessing an expired :func:`.relationship`
+  :func:`_orm.relationship` - mapped attribute, accessing an expired :func:`_orm.relationship`
   attribute will emit a load only for that attribute, using standard
   relationship-oriented lazy loading.   Column-oriented attributes, even if
   expired, will not load as part of this operation, and instead will load when
   any column-oriented attribute is accessed.
 
-* :func:`.relationship`- mapped attributes will not load in response to
+* :func:`_orm.relationship`- mapped attributes will not load in response to
   expired column-based attributes being accessed.
 
 * Regarding relationships, :meth:`~.Session.refresh` is more restrictive than
-  :meth:`~.Session.expire` with regards to attributes that aren't column-mapped.
-  Calling :meth:`.refresh` and passing a list of names that only includes
+  :meth:`.Session.expire` with regards to attributes that aren't column-mapped.
+  Calling :meth:`.Session.refresh` and passing a list of names that only includes
   relationship-mapped attributes will actually raise an error.
-  In any case, non-eager-loading :func:`.relationship` attributes will not be
+  In any case, non-eager-loading :func:`_orm.relationship` attributes will not be
   included in any refresh operation.
 
-* :func:`.relationship` attributes configured as "eager loading" via the
-  :paramref:`~.relationship.lazy` parameter will load in the case of
+* :func:`_orm.relationship` attributes configured as "eager loading" via the
+  :paramref:`_orm.relationship.lazy` parameter will load in the case of
   :meth:`~.Session.refresh`, if either no attribute names are specified, or
-  if their names are inclued in the list of attributes to be
+  if their names are included in the list of attributes to be
   refreshed.
 
 * Attributes that are configured as :func:`.deferred` will not normally load,
@@ -574,7 +591,7 @@ or loaded with :meth:`~.Session.refresh` varies based on several factors, includ
 
 
 When to Expire or Refresh
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The :class:`.Session` uses the expiration feature automatically whenever
 the transaction referred to by the session ends.  Meaning, whenever :meth:`.Session.commit`
@@ -608,7 +625,7 @@ database, in those cases when it is known that the current state of data
 is possibly stale.  Reasons for this might include:
 
 * some SQL has been emitted within the transaction outside of the
-  scope of the ORM's object handling, such as if a :meth:`.Table.update` construct
+  scope of the ORM's object handling, such as if a :meth:`_schema.Table.update` construct
   were emitted using the :meth:`.Session.execute` method;
 
 * if the application
@@ -620,7 +637,7 @@ The second bullet has the important caveat that "it is also known that the isola
 allow this data to be visible."  This means that it cannot be assumed that an
 UPDATE that happened on another database connection will yet be visible here
 locally; in many cases, it will not.  This is why if one wishes to use
-:meth:`.expire` or :meth:`.refresh` in order to view data between ongoing
+:meth:`.Session.expire` or :meth:`.Session.refresh` in order to view data between ongoing
 transactions, an understanding of the isolation behavior in effect is essential.
 
 .. seealso::
@@ -631,8 +648,13 @@ transactions, an understanding of the isolation behavior in effect is essential.
 
     :meth:`.Session.refresh`
 
+    :ref:`orm_queryguide_populate_existing` - allows any ORM query
+    to refresh objects as they would be loaded normally, refreshing
+    all matching objects in the identity map against the results of a
+    SELECT statement.
+
     :term:`isolation` - glossary explanation of isolation which includes links
     to Wikipedia.
 
-    `The SQLAlchemy Session In-Depth <http://techspot.zzzeek.org/2012/11/14/pycon-canada-the-sqlalchemy-session-in-depth/>`_ - a video + slides with an in-depth discussion of the object
+    `The SQLAlchemy Session In-Depth <https://techspot.zzzeek.org/2012/11/14/pycon-canada-the-sqlalchemy-session-in-depth/>`_ - a video + slides with an in-depth discussion of the object
     lifecycle including the role of data expiration.

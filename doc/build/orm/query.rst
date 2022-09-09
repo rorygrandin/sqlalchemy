@@ -1,23 +1,29 @@
-.. _query_api_toplevel:
-.. module:: sqlalchemy.orm
+.. currentmodule:: sqlalchemy.orm
 
+.. _query_api_toplevel:
+
+=========
 Query API
 =========
 
-The Query Object
-----------------
+This section presents the API reference for the ORM :class:`_query.Query` object.  For a walkthrough
+of how to use this object, see :ref:`ormtutorial_toplevel`.
 
-:class:`~.Query` is produced in terms of a given :class:`~.Session`, using the :meth:`~.Session.query` method::
+The Query Object
+================
+
+:class:`_query.Query` is produced in terms of a given :class:`~.Session`, using the :meth:`~.Session.query` method::
 
     q = session.query(SomeMappedClass)
 
-Following is the full interface for the :class:`.Query` object.
+Following is the full interface for the :class:`_query.Query` object.
 
-.. autoclass:: sqlalchemy.orm.query.Query
+.. autoclass:: sqlalchemy.orm.Query
    :members:
+   :inherited-members:
 
 ORM-Specific Query Constructs
------------------------------
+=============================
 
 .. autofunction:: sqlalchemy.orm.aliased
 
@@ -25,14 +31,14 @@ ORM-Specific Query Constructs
 
 .. autoclass:: sqlalchemy.orm.util.AliasedInsp
 
-.. autoclass:: sqlalchemy.orm.query.Bundle
-	:members:
+.. autoclass:: sqlalchemy.orm.Bundle
+    :members:
 
-.. autoclass:: sqlalchemy.util.KeyedTuple
-	:members: keys, _fields, _asdict
+.. autoclass:: sqlalchemy.orm.Load
+    :members:
+    :noindex:
 
-.. autoclass:: sqlalchemy.orm.strategy_options.Load
-	:members:
+.. autofunction:: sqlalchemy.orm.with_loader_criteria
 
 .. autofunction:: join
 

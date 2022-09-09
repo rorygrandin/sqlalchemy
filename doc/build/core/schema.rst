@@ -4,7 +4,7 @@
 Schema Definition Language
 ==========================
 
-.. module:: sqlalchemy.schema
+.. currentmodule:: sqlalchemy.schema
 
 This section references SQLAlchemy **schema metadata**, a comprehensive system of describing and inspecting
 database schemas.
@@ -33,7 +33,7 @@ real DDL. They are therefore most intuitive to those who have some background
 in creating real schema generation scripts.
 
 .. toctree::
-    :maxdepth: 2
+    :maxdepth: 3
 
     metadata
     reflection

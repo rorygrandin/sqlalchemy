@@ -1,7 +1,7 @@
 .. _session_events_toplevel:
 
-Tracking Object and Session Changes with Events
-===============================================
+Tracking queries, object and Session Changes with Events
+=========================================================
 
 SQLAlchemy features an extensive :ref:`Event Listening <event_toplevel>`
 system used throughout the Core and ORM.   Within the ORM, there are a
@@ -12,6 +12,253 @@ as some older events that aren't as relevant as they once were.  This
 section will attempt to introduce the major event hooks and when they
 might be used.
 
+.. _session_execute_events:
+
+Execute Events
+---------------
+
+.. versionadded:: 1.4  The :class:`_orm.Session` now features a single
+   comprehensive hook designed to intercept all SELECT statements made
+   on behalf of the ORM as well as bulk UPDATE and DELETE statements.
+   This hook supersedes the previous :meth:`_orm.QueryEvents.before_compile`
+   event as well :meth:`_orm.QueryEvents.before_compile_update` and
+   :meth:`_orm.QueryEvents.before_compile_delete`.
+
+:class:`_orm.Session` features a comprehensive system by which all queries
+invoked via the :meth:`_orm.Session.execute` method, which includes all
+SELECT statements emitted by :class:`_orm.Query` as well as all SELECT
+statements emitted on behalf of column and relationship loaders, may
+be intercepted and modified.   The system makes use of the
+:meth:`_orm.SessionEvents.do_orm_execute` event hook as well as the
+:class:`_orm.ORMExecuteState` object to represent the event state.
+
+
+Basic Query Interception
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+:meth:`_orm.SessionEvents.do_orm_execute` is firstly useful for any kind of
+interception of a query, which includes those emitted by
+:class:`_orm.Query` with :term:`1.x style` as well as when an ORM-enabled
+:term:`2.0 style` :func:`_sql.select`,
+:func:`_sql.update` or :func:`_sql.delete` construct is delivered to
+:meth:`_orm.Session.execute`.   The :class:`_orm.ORMExecuteState` construct
+provides accessors to allow modifications to statements, parameters, and
+options::
+
+    Session = sessionmaker(engine, future=True)
+
+    @event.listens_for(Session, "do_orm_execute")
+    def _do_orm_execute(orm_execute_state):
+        if orm_execute_state.is_select:
+            # add populate_existing for all SELECT statements
+
+            orm_execute_state.update_execution_options(populate_existing=True)
+
+            # check if the SELECT is against a certain entity and add an
+            # ORDER BY if so
+            col_descriptions = orm_execute_state.statement.column_descriptions
+
+            if col_descriptions[0]['entity'] is MyEntity:
+                orm_execute_state.statement = statement.order_by(MyEntity.name)
+
+The above example illustrates some simple modifications to SELECT statements.
+At this level, the :meth:`_orm.SessionEvents.do_orm_execute` event hook intends
+to replace the previous use of the :meth:`_orm.QueryEvents.before_compile` event,
+which was not fired off consistently for various kinds of loaders; additionally,
+the :meth:`_orm.QueryEvents.before_compile` only applies to :term:`1.x style`
+use with :class:`_orm.Query` and not with :term:`2.0 style` use of
+:meth:`_orm.Session.execute`.
+
+
+.. _do_orm_execute_global_criteria:
+
+Adding global WHERE / ON criteria
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+One of the most requested query-extension features is the ability to add WHERE
+criteria to all occurrences of an entity in all queries.   This is achievable
+by making use of the :func:`_orm.with_loader_criteria` query option, which
+may be used on its own, or is ideally suited to be used within the
+:meth:`_orm.SessionEvents.do_orm_execute` event::
+
+    from sqlalchemy.orm import with_loader_criteria
+
+    Session = sessionmaker(engine, future=True)
+
+    @event.listens_for(Session, "do_orm_execute")
+    def _do_orm_execute(orm_execute_state):
+
+        if (
+            orm_execute_state.is_select and
+            not orm_execute_state.is_column_load and
+            not orm_execute_state.is_relationship_load
+        ):
+            orm_execute_state.statement = orm_execute_state.statement.options(
+                with_loader_criteria(MyEntity.public == True)
+            )
+
+Above, an option is added to all SELECT statements that will limit all queries
+against ``MyEntity`` to filter on ``public == True``.   The criteria
+will be applied to **all** loads of that class within the scope of the
+immediate query.    The :func:`_orm.with_loader_criteria` option by default
+will automatically propagate to relationship loaders as well, which will
+apply to subsequent relationship loads, which includes
+lazy loads, selectinloads, etc.
+
+For a series of classes that all feature some common column structure,
+if the classes are composed using a :ref:`declarative mixin <declarative_mixins>`,
+the mixin class itself may be used in conjunction with the :func:`_orm.with_loader_criteria`
+option by making use of a Python lambda.  The Python lambda will be invoked at
+query compilation time against the specific entities which match the criteria.
+Given a series of classes based on a mixin called ``HasTimestamp``::
+
+    import datetime
+
+    class HasTimestamp(object):
+        timestamp = Column(DateTime, default=datetime.datetime.now)
+
+
+    class SomeEntity(HasTimestamp, Base):
+        __tablename__ = "some_entity"
+        id = Column(Integer, primary_key=True)
+
+    class SomeOtherEntity(HasTimestamp, Base):
+        __tablename__ = "some_entity"
+        id = Column(Integer, primary_key=True)
+
+
+The above classes ``SomeEntity`` and ``SomeOtherEntity`` will each have a column
+``timestamp`` that defaults to the current date and time.   An event may be used
+to intercept all objects that extend from ``HasTimestamp`` and filter their
+``timestamp`` column on a date that is no older than one month ago::
+
+    @event.listens_for(Session, "do_orm_execute")
+    def _do_orm_execute(orm_execute_state):
+        if (
+                orm_execute_state.is_select
+                and not orm_execute_state.is_column_load
+                and not orm_execute_state.is_relationship_load
+        ):
+            one_month_ago = datetime.datetime.today() - datetime.timedelta(months=1)
+
+            orm_execute_state.statement = orm_execute_state.statement.options(
+                with_loader_criteria(
+                    HasTimestamp,
+                    lambda cls: cls.timestamp >= one_month_ago,
+                    include_aliases=True
+                )
+            )
+
+.. warning:: The use of a lambda inside of the call to
+   :func:`_orm.with_loader_criteria` is only invoked **once per unique class**.
+   Custom functions should not be invoked within this lambda.   See
+   :ref:`engine_lambda_caching` for an overview of the "lambda SQL" feature,
+   which is for advanced use only.
+
+.. seealso::
+
+    :ref:`examples_session_orm_events` - includes working examples of the
+    above :func:`_orm.with_loader_criteria` recipes.
+
+.. _do_orm_execute_re_executing:
+
+Re-Executing Statements
+^^^^^^^^^^^^^^^^^^^^^^^
+
+.. deepalchemy:: the statement re-execution feature involves a slightly
+   intricate recursive sequence, and is intended to solve the fairly hard
+   problem of being able to re-route the execution of a SQL statement into
+   various non-SQL contexts.    The twin examples of "dogpile caching" and
+   "horizontal sharding", linked below, should be used as a guide for when this
+   rather advanced feature is appropriate to be used.
+
+The :class:`_orm.ORMExecuteState` is capable of controlling the execution of
+the given statement; this includes the ability to either not invoke the
+statement at all, allowing a pre-constructed result set retrieved from a cache to
+be returned instead, as well as the ability to invoke the same statement
+repeatedly with different state, such as invoking it against multiple database
+connections and then merging the results together in memory.   Both of these
+advanced patterns are demonstrated in SQLAlchemy's example suite as detailed
+below.
+
+When inside the :meth:`_orm.SessionEvents.do_orm_execute` event hook, the
+:meth:`_orm.ORMExecuteState.invoke_statement` method may be used to invoke
+the statement using a new nested invocation of :meth:`_orm.Session.execute`,
+which will then preempt the subsequent handling of the current execution
+in progress and instead return the :class:`_engine.Result` returned by the
+inner execution.   The event handlers thus far invoked for the
+:meth:`_orm.SessionEvents.do_orm_execute` hook within this process will
+be skipped within this nested call as well.
+
+The :meth:`_orm.ORMExecuteState.invoke_statement` method returns a
+:class:`_engine.Result` object; this object then features the ability for it to
+be "frozen" into a cacheable format and "unfrozen" into a new
+:class:`_engine.Result` object, as well as for its data to be merged with
+that of other :class:`_engine.Result` objects.
+
+E.g., using :meth:`_orm.SessionEvents.do_orm_execute` to implement a cache::
+
+    from sqlalchemy.orm import loading
+
+    cache = {}
+
+    @event.listens_for(Session, "do_orm_execute")
+    def _do_orm_execute(orm_execute_state):
+        if "my_cache_key" in orm_execute_state.execution_options:
+            cache_key = orm_execute_state.execution_options["my_cache_key"]
+
+            if cache_key in cache:
+                frozen_result = cache[cache_key]
+            else:
+                frozen_result = orm_execute_state.invoke_statement().freeze()
+                cache[cache_key] = frozen_result
+
+            return loading.merge_frozen_result(
+                orm_execute_state.session,
+                orm_execute_state.statement,
+                frozen_result,
+                load=False,
+            )
+
+With the above hook in place, an example of using the cache would look like::
+
+    stmt = select(User).where(User.name == 'sandy').execution_options(my_cache_key="key_sandy")
+
+    result = session.execute(stmt)
+
+Above, a custom execution option is passed to
+:meth:`_sql.Select.execution_options` in order to establish a "cache key" that
+will then be intercepted by the :meth:`_orm.SessionEvents.do_orm_execute` hook.  This
+cache key is then matched to a :class:`_engine.FrozenResult` object that may be
+present in the cache, and if present, the object is re-used.  The recipe makes
+use of the :meth:`_engine.Result.freeze` method to "freeze" a
+:class:`_engine.Result` object, which above will contain ORM results, such that
+it can be stored in a cache and used multiple times. In order to return a live
+result from the "frozen" result, the :func:`_orm.loading.merge_frozen_result`
+function is used to merge the "frozen" data from the result object into the
+current session.
+
+The above example is implemented as a complete example in :ref:`examples_caching`.
+
+The :meth:`_orm.ORMExecuteState.invoke_statement` method may also be called
+multiple times, passing along different information to the
+:paramref:`_orm.ORMExecuteState.invoke_statement.bind_arguments` parameter such
+that the :class:`_orm.Session` will make use of different
+:class:`_engine.Engine` objects each time.  This will return a different
+:class:`_engine.Result` object each time; these results can be merged together
+using the :meth:`_engine.Result.merge` method.  This is the technique employed
+by the :ref:`horizontal_sharding_toplevel` extension; see the source code to
+familiarize.
+
+.. seealso::
+
+    :ref:`examples_caching`
+
+    :ref:`examples_sharding`
+
+
+
+
 .. _session_persistence_events:
 
 Persistence Events
@@ -21,7 +268,7 @@ Probably the most widely used series of events are the "persistence" events,
 which correspond to the :ref:`flush process<session_flushing>`.
 The flush is where all the decisions are made about pending changes to
 objects and are then emitted out to the database in the form of INSERT,
-UPDATE, and DELETE staetments.
+UPDATE, and DELETE statements.
 
 ``before_flush()``
 ^^^^^^^^^^^^^^^^^^
@@ -33,7 +280,7 @@ Use :meth:`.SessionEvents.before_flush` in order to operate
 upon objects to validate their state as well as to compose additional objects
 and references before they are persisted.   Within this event,
 it is **safe to manipulate the Session's state**, that is, new objects
-can be attached to it, objects can be deleted, and indivual attributes
+can be attached to it, objects can be deleted, and individual attributes
 on objects can be changed freely, and these changes will be pulled into
 the flush process when the event hook completes.
 
@@ -102,8 +349,8 @@ The events are:
 * :meth:`.MapperEvents.before_delete`
 * :meth:`.MapperEvents.after_delete`
 
-Each event is passed the :class:`.Mapper`,
-the mapped object itself, and the :class:`.Connection` which is being
+Each event is passed the :class:`_orm.Mapper`,
+the mapped object itself, and the :class:`_engine.Connection` which is being
 used to emit an INSERT, UPDATE or DELETE statement.     The appeal of these
 events is clear, in that if an application wants to tie some activity to
 when a specific type of object is persisted with an INSERT, the hook is
@@ -127,10 +374,10 @@ events include:
 * Mapped relationship attribute set/del events,
   i.e. ``someobject.related = someotherobject``
 
-The reason the :class:`.Connection` is passed is that it is encouraged that
-**simple SQL operations take place here**, directly on the :class:`.Connection`,
+The reason the :class:`_engine.Connection` is passed is that it is encouraged that
+**simple SQL operations take place here**, directly on the :class:`_engine.Connection`,
 such as incrementing counters or inserting extra rows within log tables.
-When dealing with the :class:`.Connection`, it is expected that Core-level
+When dealing with the :class:`_engine.Connection`, it is expected that Core-level
 SQL operations will be used; e.g. those described in :ref:`sqlexpression_toplevel`.
 
 There are also many per-object operations that don't need to be handled
@@ -243,7 +490,7 @@ now has an identity key.   Track pending to persistent with the
         print("pending to persistent: %s" % object_)
 
 Pending to Transient
-^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^
 
 The :term:`pending` object can revert back to :term:`transient` if the
 :meth:`.Session.rollback` method is called before the pending object
@@ -256,7 +503,7 @@ for the object before it is flushed.  Track pending to transient with the
         print("transient to pending: %s" % object_)
 
 Loaded as Persistent
-^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^
 
 Objects can appear in the :class:`.Session` directly in the :term:`persistent`
 state when they are loaded from the database.   Tracking this state transition
@@ -316,7 +563,7 @@ Track the persistent to deleted transition with
 
 
 Deleted to Detached
-^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^
 
 The deleted object becomes :term:`detached` when the session's transaction
 is committed.  After the :meth:`.Session.commit` method is called, the
@@ -340,7 +587,7 @@ the deleted to detached transition using :meth:`.SessionEvents.deleted_to_detach
 
 
 Persistent to Detached
-^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
 
 The persistent object becomes :term:`detached` when the object is de-associated
 with the :class:`.Session`, via the :meth:`.Session.expunge`,
@@ -356,11 +603,11 @@ Track objects as they move from persistent to detached using the
 :meth:`.SessionEvents.persistent_to_detached` event::
 
     @event.listens_for(sessionmaker, "persistent_to_detached")
-    def intecept_persistent_to_detached(session, object_):
+    def intercept_persistent_to_detached(session, object_):
         print("object became detached: %s" % object_)
 
 Detached to Persistent
-^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
 
 The detached object becomes persistent when it is re-associated with a
 session using the :meth:`.Session.add` or equivalent method.  Track
@@ -368,12 +615,12 @@ objects moving back to persistent from detached using the
 :meth:`.SessionEvents.detached_to_persistent` event::
 
     @event.listens_for(sessionmaker, "detached_to_persistent")
-    def intecept_detached_to_persistent(session, object_):
+    def intercept_detached_to_persistent(session, object_):
         print("object became persistent again: %s" % object_)
 
 
 Deleted to Persistent
-^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
 
 The :term:`deleted` object can be reverted to the :term:`persistent`
 state when the transaction in which it was DELETEd was rolled back
@@ -381,18 +628,18 @@ using the :meth:`.Session.rollback` method.   Track deleted objects
 moving back to the persistent state using the
 :meth:`.SessionEvents.deleted_to_persistent` event::
 
-    @event.listens_for(sessionmaker, "transient_to_pending")
-    def intercept_transient_to_pending(session, object_):
-        print("transient to pending: %s" % object_)
+    @event.listens_for(sessionmaker, "deleted_to_persistent")
+    def intercept_deleted_to_persistent(session, object_):
+        print("deleted to persistent: %s" % object_)
 
 .. _session_transaction_events:
 
 Transaction Events
 ------------------
 
-Transaction events allow an application to be notifed when transaction
+Transaction events allow an application to be notified when transaction
 boundaries occur at the :class:`.Session` level as well as when the
-:class:`.Session` changes the transactional state on :class:`.Connection`
+:class:`.Session` changes the transactional state on :class:`_engine.Connection`
 objects.
 
 * :meth:`.SessionEvents.after_transaction_create`,

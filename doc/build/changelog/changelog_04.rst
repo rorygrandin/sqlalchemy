@@ -1,7 +1,7 @@
 
-==============
+=============
 0.4 Changelog
-==============
+=============
 
                 
 .. changelog::
@@ -60,7 +60,7 @@
       convert_unicode logic disabled in the sqlite dialect,
       to adjust for pysqlite 2.5.0's new requirement that
       only Python unicode objects are accepted;
-      http://itsystementwicklung.de/pipermail/list-pysqlite/2008-March/000018.html
+      https://itsystementwicklung.de/pipermail/list-pysqlite/2008-March/000018.html
 
     .. change::
         :tags: oracle
@@ -266,7 +266,7 @@
         :tickets: 1036
 
       repaired single table inheritance such that you
-      can single-table inherit from a joined-table inherting
+      can single-table inherit from a joined-table inheriting
       mapper without issue.
 
     .. change::
@@ -674,7 +674,7 @@
           whether or not it remains attached to its also-deleted
           parent.
       
-        - delete-orphan casacde is properly detected on relations
+        - delete-orphan cascade is properly detected on relations
           that are present on superclasses when using inheritance.
 
     .. change::
@@ -2300,7 +2300,7 @@
 
       MSSQL
        - PyODBC no longer has a global "set nocount on".
-       - Fix non-identity integer PKs on autload
+       - Fix non-identity integer PKs on autoload
        - Better support for convert_unicode
        - Less strict date conversion for pyodbc/adodbapi
        - Schema-qualified tables / autoload
@@ -2712,7 +2712,7 @@
         :tickets: 
 
       Renamed the Dialect attribute 'preexecute_sequences' to
-      'preexecute_pk_sequences'.  An attribute porxy is in place for
+      'preexecute_pk_sequences'.  An attribute proxy is in place for
       out-of-tree dialects using the old name.
 
     .. change::
@@ -2751,7 +2751,7 @@
         :tickets: 
 
       (see 0.4.0beta1 for the start of major changes against 0.3,
-      as well as http://www.sqlalchemy.org/trac/wiki/WhatsNewIn04 )
+      as well as https://www.sqlalchemy.org/trac/wiki/WhatsNewIn04 )
 
     .. change::
         :tags: 
@@ -3415,7 +3415,7 @@
         :tickets: 
 
       Hooks added throughout base/sql/defaults to optimize the calling of bind
-      aram/result processors so that method call overhead is minimized.
+      param/result processors so that method call overhead is minimized.
 
     .. change::
         :tags: 
@@ -3742,7 +3742,7 @@
         :tickets: 
 
       New scoped_session() function replaces SessionContext and assignmapper.
-      Builds onto "sessionmaker()" concept to produce a class whos Session()
+      Builds onto "sessionmaker()" concept to produce a class whose Session()
       construction returns the thread-local session.  Or, call all Session
       methods as class methods, i.e. Session.save(foo); Session.commit().
       just like the old "objectstore" days.
@@ -4080,7 +4080,7 @@
         :tags: metadata
         :tickets: 
 
-      Added "explcit" create/drop/execute support for sequences (i.e. you can
+      Added "explicit" create/drop/execute support for sequences (i.e. you can
       pass a "connectable" to each of those methods on Sequence).
 
     .. change::

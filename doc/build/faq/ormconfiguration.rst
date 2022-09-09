@@ -1,5 +1,5 @@
 ORM Configuration
-==================
+=================
 
 .. contents::
     :local:
@@ -34,15 +34,15 @@ and is also key to the most common (and not-so-common) patterns of ORM usage.
 .. note::
 
     It's important to note that we're only talking about the SQLAlchemy ORM; an
-    application which builds on Core and deals only with :class:`.Table` objects,
-    :func:`.select` constructs and the like, **does not** need any primary key
+    application which builds on Core and deals only with :class:`_schema.Table` objects,
+    :func:`_expression.select` constructs and the like, **does not** need any primary key
     to be present on or associated with a table in any way (though again, in SQL, all tables
     should really have some kind of primary key, lest you need to actually
     update or delete specific rows).
 
 In almost all cases, a table does have a so-called :term:`candidate key`, which is a column or series
 of columns that uniquely identify a row.  If a table truly doesn't have this, and has actual
-fully duplicate rows, the table is not corresponding to `first normal form <http://en.wikipedia.org/wiki/First_normal_form>`_ and cannot be mapped.   Otherwise, whatever columns comprise the best candidate key can be
+fully duplicate rows, the table is not corresponding to `first normal form <https://en.wikipedia.org/wiki/First_normal_form>`_ and cannot be mapped.   Otherwise, whatever columns comprise the best candidate key can be
 applied directly to the mapper::
 
     class SomeClass(Base):
@@ -72,7 +72,7 @@ columns::
 
 
 How do I configure a Column that is a Python reserved word or similar?
-----------------------------------------------------------------------------
+----------------------------------------------------------------------
 
 Column-based attributes can be given any name desired in the mapping. See
 :ref:`mapper_column_distinct_names`.
@@ -80,10 +80,10 @@ Column-based attributes can be given any name desired in the mapping. See
 How do I get a list of all columns, relationships, mapped attributes, etc. given a mapped class?
 -------------------------------------------------------------------------------------------------
 
-This information is all available from the :class:`.Mapper` object.
+This information is all available from the :class:`_orm.Mapper` object.
 
-To get at the :class:`.Mapper` for a particular mapped class, call the
-:func:`.inspect` function on it::
+To get at the :class:`_orm.Mapper` for a particular mapped class, call the
+:func:`_sa.inspect` function on it::
 
     from sqlalchemy import inspect
 
@@ -92,27 +92,27 @@ To get at the :class:`.Mapper` for a particular mapped class, call the
 From there, all information about the class can be accessed through properties
 such as:
 
-* :attr:`.Mapper.attrs` - a namespace of all mapped attributes.  The attributes
+* :attr:`_orm.Mapper.attrs` - a namespace of all mapped attributes.  The attributes
   themselves are instances of :class:`.MapperProperty`, which contain additional
   attributes that can lead to the mapped SQL expression or column, if applicable.
 
-* :attr:`.Mapper.column_attrs` - the mapped attribute namespace
+* :attr:`_orm.Mapper.column_attrs` - the mapped attribute namespace
   limited to column and SQL expression attributes.   You might want to use
-  :attr:`.Mapper.columns` to get at the :class:`.Column` objects directly.
+  :attr:`_orm.Mapper.columns` to get at the :class:`_schema.Column` objects directly.
 
-* :attr:`.Mapper.relationships` - namespace of all :class:`.RelationshipProperty` attributes.
+* :attr:`_orm.Mapper.relationships` - namespace of all :class:`.RelationshipProperty` attributes.
 
-* :attr:`.Mapper.all_orm_descriptors` - namespace of all mapped attributes, plus user-defined
+* :attr:`_orm.Mapper.all_orm_descriptors` - namespace of all mapped attributes, plus user-defined
   attributes defined using systems such as :class:`.hybrid_property`, :class:`.AssociationProxy` and others.
 
-* :attr:`.Mapper.columns` - A namespace of :class:`.Column` objects and other named
+* :attr:`_orm.Mapper.columns` - A namespace of :class:`_schema.Column` objects and other named
   SQL expressions associated with the mapping.
 
-* :attr:`.Mapper.mapped_table` - The :class:`.Table` or other selectable to which
+* :attr:`_orm.Mapper.mapped_table` - The :class:`_schema.Table` or other selectable to which
   this mapper is mapped.
 
-* :attr:`.Mapper.local_table` - The :class:`.Table` that is "local" to this mapper;
-  this differs from :attr:`.Mapper.mapped_table` in the case of a mapper mapped
+* :attr:`_orm.Mapper.local_table` - The :class:`_schema.Table` that is "local" to this mapper;
+  this differs from :attr:`_orm.Mapper.mapped_table` in the case of a mapper mapped
   using inheritance to a composed selectable.
 
 .. _faq_combining_columns:
@@ -199,7 +199,7 @@ Are you doing this?::
 
         foo = relationship("Dest", primaryjoin=and_("MyClass.id==Dest.foo_id", "MyClass.foo==Dest.bar"))
 
-That's an ``and_()`` of two string expressions, which SQLAlchemy cannot apply any mapping towards.  Declarative allows :func:`.relationship` arguments to be specified as strings, which are converted into expression objects using ``eval()``.   But this doesn't occur inside of an ``and_()`` expression - it's a special operation declarative applies only to the *entirety* of what's passed to primaryjoin or other arguments as a string::
+That's an ``and_()`` of two string expressions, which SQLAlchemy cannot apply any mapping towards.  Declarative allows :func:`_orm.relationship` arguments to be specified as strings, which are converted into expression objects using ``eval()``.   But this doesn't occur inside of an ``and_()`` expression - it's a special operation declarative applies only to the *entirety* of what's passed to primaryjoin or other arguments as a string::
 
     class MyClass(Base):
         # ....
@@ -234,27 +234,24 @@ The same idea applies to all the other arguments, such as ``foreign_keys``::
 
 .. _faq_subqueryload_limit_sort:
 
-Why is ``ORDER BY`` required with ``LIMIT`` (especially with ``subqueryload()``)?
----------------------------------------------------------------------------------
+Why is ``ORDER BY`` recommended with ``LIMIT`` (especially with ``subqueryload()``)?
+------------------------------------------------------------------------------------
 
-A relational database can return rows in any
-arbitrary order, when an explicit ordering is not set.
-While this ordering very often corresponds to the natural
-order of rows within a table, this is not the case for all databases and
-all queries.   The consequence of this is that any query that limits rows
-using ``LIMIT`` or ``OFFSET`` should **always** specify an ``ORDER BY``.
-Otherwise, it is not deterministic which rows will actually be returned.
+When ORDER BY is not used for a SELECT statement that returns rows, the
+relational database is free to returned matched rows in any arbitrary
+order.  While this ordering very often corresponds to the natural
+order of rows within a table, this is not the case for all databases and all
+queries. The consequence of this is that any query that limits rows using
+``LIMIT`` or ``OFFSET``, or which merely selects the first row of the result,
+discarding the rest, will not be deterministic in terms of what result row is
+returned, assuming there's more than one row that matches the query's criteria.
 
-When we use a SQLAlchemy method like :meth:`.Query.first`, we are in fact
-applying a ``LIMIT`` of one to the query, so without an explicit ordering
-it is not deterministic what row we actually get back.
 While we may not notice this for simple queries on databases that usually
-returns rows in their natural
-order, it becomes much more of an issue if we also use :func:`.orm.subqueryload`
-to load related collections, and we may not be loading the collections
-as intended.
+returns rows in their natural order, it becomes more of an issue if we
+also use :func:`_orm.subqueryload` to load related collections, and we may not
+be loading the collections as intended.
 
-SQLAlchemy implements :func:`.orm.subqueryload` by issuing a separate query,
+SQLAlchemy implements :func:`_orm.subqueryload` by issuing a separate query,
 the results of which are matched up to the results from the first query.
 We see two queries emitted like this:
 
@@ -321,14 +318,16 @@ won't see that anything actually went wrong.
 
 The solution to this problem is to always specify a deterministic sort order,
 so that the main query always returns the same set of rows. This generally
-means that you should :meth:`.Query.order_by` on a unique column on the table.
+means that you should :meth:`_query.Query.order_by` on a unique column on the table.
 The primary key is a good choice for this::
 
     session.query(User).options(subqueryload(User.addresses)).order_by(User.id).first()
 
-Note that :func:`.joinedload` does not suffer from the same problem because
-only one query is ever issued, so the load query cannot be different from the
-main query.
+Note that the :func:`_orm.joinedload` eager loader strategy does not suffer from
+the same problem because only one query is ever issued, so the load query
+cannot be different from the main query.  Similarly, the :func:`.selectinload`
+eager loader strategy also does not have this issue as it links its collection
+loads directly to primary key values just loaded.
 
 .. seealso::
 

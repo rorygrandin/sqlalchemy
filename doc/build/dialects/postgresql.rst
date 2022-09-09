@@ -5,8 +5,8 @@ PostgreSQL
 
 .. automodule:: sqlalchemy.dialects.postgresql.base
 
-PostgreSQL Data Types
-------------------------
+PostgreSQL Data Types and Custom SQL Constructs
+------------------------------------------------
 
 As with all SQLAlchemy dialects, all UPPERCASE types that are known to be
 valid with PostgreSQL are importable from the top level dialect, whether
@@ -15,12 +15,16 @@ they originate from :mod:`sqlalchemy.types` or from the local dialect::
     from sqlalchemy.dialects.postgresql import \
         ARRAY, BIGINT, BIT, BOOLEAN, BYTEA, CHAR, CIDR, DATE, \
         DOUBLE_PRECISION, ENUM, FLOAT, HSTORE, INET, INTEGER, \
-        INTERVAL, JSON, JSONB, MACADDR, NUMERIC, OID, REAL, SMALLINT, TEXT, \
+        INTERVAL, JSON, JSONB, MACADDR, MONEY, NUMERIC, OID, REAL, SMALLINT, TEXT, \
         TIME, TIMESTAMP, UUID, VARCHAR, INT4RANGE, INT8RANGE, NUMRANGE, \
         DATERANGE, TSRANGE, TSTZRANGE, TSVECTOR
 
 Types which are specific to PostgreSQL, or have PostgreSQL-specific
 construction arguments, are as follows:
+
+.. note: where :noindex: is used, indicates a type that is not redefined
+   in the dialect module, just imported from sqltypes.  this avoids warnings
+   in the sphinx build
 
 .. currentmodule:: sqlalchemy.dialects.postgresql
 
@@ -38,8 +42,6 @@ construction arguments, are as follows:
 .. autofunction:: All
 
 .. autoclass:: BIT
-    :members: __init__
-
 
 .. autoclass:: BYTEA
     :members: __init__
@@ -49,6 +51,7 @@ construction arguments, are as follows:
 
 .. autoclass:: DOUBLE_PRECISION
     :members: __init__
+    :noindex:
 
 
 .. autoclass:: ENUM
@@ -64,8 +67,6 @@ construction arguments, are as follows:
 
 
 .. autoclass:: INET
-    :members: __init__
-
 
 .. autoclass:: INTERVAL
     :members: __init__
@@ -77,16 +78,24 @@ construction arguments, are as follows:
     :members:
 
 .. autoclass:: MACADDR
-    :members: __init__
+
+.. autoclass:: MONEY
 
 .. autoclass:: OID
-    :members: __init__
 
 .. autoclass:: REAL
     :members: __init__
+    :noindex:
+
+.. autoclass:: REGCLASS
+
+.. autoclass:: TIMESTAMP
+    :members: __init__
+
+.. autoclass:: TIME
+    :members: __init__
 
 .. autoclass:: TSVECTOR
-    :members: __init__
 
 .. autoclass:: UUID
     :members: __init__
@@ -124,19 +133,19 @@ mixin:
 
 .. warning::
 
-  The range type DDL support should work with any Postgres DBAPI
+  The range type DDL support should work with any PostgreSQL DBAPI
   driver, however the data types returned may vary. If you are using
   ``psycopg2``, it's recommended to upgrade to version 2.5 or later
   before using these column types.
 
 When instantiating models that use these column types, you should pass
 whatever data type is expected by the DBAPI driver you're using for
-the column type. For :mod:`psycopg2` these are
-:class:`~psycopg2.extras.NumericRange`,
-:class:`~psycopg2.extras.DateRange`,
-:class:`~psycopg2.extras.DateTimeRange` and
-:class:`~psycopg2.extras.DateTimeTZRange` or the class you've
-registered with :func:`~psycopg2.extras.register_range`.
+the column type. For ``psycopg2`` these are
+``psycopg2.extras.NumericRange``,
+``psycopg2.extras.DateRange``,
+``psycopg2.extras.DateTimeRange`` and
+``psycopg2.extras.DateTimeTZRange`` or the class you've
+registered with ``psycopg2.extras.register_range``.
 
 For example:
 
@@ -182,12 +191,14 @@ For example::
       )
 
 PostgreSQL DML Constructs
----------------------------
+-------------------------
 
-.. autofunction:: sqlalchemy.dialects.postgresql.dml.insert
+.. autofunction:: sqlalchemy.dialects.postgresql.insert
 
-.. autoclass:: sqlalchemy.dialects.postgresql.dml.Insert
+.. autoclass:: sqlalchemy.dialects.postgresql.Insert
   :members:
+
+.. _postgresql_psycopg2:
 
 psycopg2
 --------
@@ -198,6 +209,13 @@ pg8000
 ------
 
 .. automodule:: sqlalchemy.dialects.postgresql.pg8000
+
+.. _dialect-postgresql-asyncpg:
+
+asyncpg
+-------
+
+.. automodule:: sqlalchemy.dialects.postgresql.asyncpg
 
 psycopg2cffi
 ------------
@@ -215,9 +233,4 @@ pygresql
 --------
 
 .. automodule:: sqlalchemy.dialects.postgresql.pygresql
-
-zxjdbc
-------
-
-.. automodule:: sqlalchemy.dialects.postgresql.zxjdbc
 

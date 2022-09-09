@@ -20,10 +20,13 @@ cache the **return results** from the database.  A technique that demonstrates
 the caching of the SQL calls and result sets themselves is available in
 :ref:`examples_caching`.
 
+.. deprecated:: 1.4  SQLAlchemy 1.4 and 2.0 feature an all-new direct query
+   caching system that removes the need for the :class:`.BakedQuery` system.
+   Caching is now transparently active for all Core and ORM queries with no
+   action taken by the user, using the system described at :ref:`sql_caching`.
 
-.. versionadded:: 1.0.0
 
-.. note::
+.. deepalchemy::
 
     The :mod:`sqlalchemy.ext.baked` extension is **not for beginners**.  Using
     it correctly requires a good high level understanding of how SQLAlchemy, the
@@ -54,15 +57,15 @@ query build-up looks like the following::
 
     from sqlalchemy import bindparam
 
-    def search_for_user(session, username, email=None):
 
+    def search_for_user(session, username, email=None):
         baked_query = bakery(lambda session: session.query(User))
-        baked_query += lambda q: q.filter(User.name == bindparam('username'))
+        baked_query += lambda q: q.filter(User.name == bindparam("username"))
 
         baked_query += lambda q: q.order_by(User.id)
 
         if email:
-            baked_query += lambda q: q.filter(User.email == bindparam('email'))
+            baked_query += lambda q: q.filter(User.email == bindparam("email"))
 
         result = baked_query(session).params(username=username, email=email).all()
 
@@ -76,7 +79,7 @@ Following are some observations about the above code:
    object.
 
 2. The actual :class:`~.query.Query` object is not built at all, until the
-   very end of the function when :meth:`.Result.all` is called.
+   very end of the function when :meth:`_baked.Result.all` is called.
 
 3. The steps that are added to the ``baked_query`` object are all expressed
    as Python functions,  typically lambdas.  The first lambda given
@@ -103,7 +106,7 @@ Following are some observations about the above code:
    variables which may change across calls are referenced **within** the
    lambdas; instead, assuming these are values to be bound into the
    SQL string, we use :func:`.bindparam` to construct named parameters,
-   where we apply their actual values later using :meth:`.Result.params`.
+   where we apply their actual values later using :meth:`_baked.Result.params`.
 
 
 Performance
@@ -127,7 +130,7 @@ compared to the equivalent "baked" query::
     s = Session(bind=engine)
     for id_ in random.sample(ids, n):
         q = bakery(lambda s: s.query(Customer))
-        q += lambda q: q.filter(Customer.id == bindparam('id'))
+        q += lambda q: q.filter(Customer.id == bindparam("id"))
         q(s).params(id=id_).one()
 
 The difference in Python function call count for an iteration of 10000
@@ -175,9 +178,10 @@ just building up the query, and removing its :class:`.Session` by calling
 
     my_simple_cache = {}
 
+
     def lookup(session, id_argument):
         if "my_key" not in my_simple_cache:
-            query = session.query(Model).filter(Model.id == bindparam('id'))
+            query = session.query(Model).filter(Model.id == bindparam("id"))
             my_simple_cache["my_key"] = query.with_session(None)
         else:
             query = my_simple_cache["my_key"].with_session(session)
@@ -188,10 +192,10 @@ The above approach gets us a very minimal performance benefit.
 By re-using a :class:`~.query.Query`, we save on the Python work within
 the ``session.query(Model)`` constructor as well as calling upon
 ``filter(Model.id == bindparam('id'))``, which will skip for us the building
-up of the Core expression as well as sending it to :meth:`.Query.filter`.
-However, the approach still regenerates the full :class:`.Select`
-object every time when :meth:`.Query.all` is called and additionally this
-brand new :class:`.Select` is sent off to the string compilation step every
+up of the Core expression as well as sending it to :meth:`_query.Query.filter`.
+However, the approach still regenerates the full :class:`_expression.Select`
+object every time when :meth:`_query.Query.all` is called and additionally this
+brand new :class:`_expression.Select` is sent off to the string compilation step every
 time, which for a simple case like the above is probably about 70% of the
 overhead.
 
@@ -210,9 +214,8 @@ Our example becomes::
     my_simple_cache = {}
 
     def lookup(session, id_argument):
-
         if "my_key" not in my_simple_cache:
-            query = session.query(Model).filter(Model.id == bindparam('id'))
+            query = session.query(Model).filter(Model.id == bindparam("id"))
             my_simple_cache["my_key"] = query.with_session(None).bake()
         else:
             query = my_simple_cache["my_key"].with_session(session)
@@ -228,9 +231,10 @@ a simple improvement upon the simple "reuse a query" approach::
 
     bakery = baked.bakery()
 
+
     def lookup(session, id_argument):
         def create_model_query(session):
-            return session.query(Model).filter(Model.id == bindparam('id'))
+            return session.query(Model).filter(Model.id == bindparam("id"))
 
         parameterized_query = bakery.bake(create_model_query)
         return parameterized_query(session).params(id=id_argument).all()
@@ -241,7 +245,7 @@ uses two fewer lines of code, does not need to manufacture a cache key of
 "my_key", and also includes the same feature as our custom "bake" function
 that caches 100% of the Python invocation work from the
 constructor of the query, to the filter call, to the production
-of the :class:`.Select` object, to the string compilation step.
+of the :class:`_expression.Select` object, to the string compilation step.
 
 From the above, if we ask ourselves, "what if lookup needs to make conditional decisions
 as to the structure of the query?", this is where hopefully it becomes apparent
@@ -253,6 +257,7 @@ query on a conditional basis::
 
     my_simple_cache = {}
 
+
     def lookup(session, id_argument, include_frobnizzle=False):
         if include_frobnizzle:
             cache_key = "my_key_with_frobnizzle"
@@ -260,7 +265,7 @@ query on a conditional basis::
             cache_key = "my_key_without_frobnizzle"
 
         if cache_key not in my_simple_cache:
-            query = session.query(Model).filter(Model.id == bindparam('id'))
+            query = session.query(Model).filter(Model.id == bindparam("id"))
             if include_frobnizzle:
                 query = query.filter(Model.frobnizzle == True)
 
@@ -281,9 +286,10 @@ into a direct use of "bakery" as follows::
 
     bakery = baked.bakery()
 
+
     def lookup(session, id_argument, include_frobnizzle=False):
         def create_model_query(session):
-            return session.query(Model).filter(Model.id == bindparam('id'))
+            return session.query(Model).filter(Model.id == bindparam("id"))
 
         parameterized_query = bakery.bake(create_model_query)
 
@@ -292,7 +298,8 @@ into a direct use of "bakery" as follows::
                 return query.filter(Model.frobnizzle == True)
 
             parameterized_query = parameterized_query.with_criteria(
-                include_frobnizzle_in_query)
+                include_frobnizzle_in_query
+            )
 
         return parameterized_query(session).params(id=id_argument).all()
 
@@ -312,10 +319,11 @@ means to reduce verbosity::
 
     bakery = baked.bakery()
 
+
     def lookup(session, id_argument, include_frobnizzle=False):
         parameterized_query = bakery.bake(
-            lambda s: s.query(Model).filter(Model.id == bindparam('id'))
-          )
+            lambda s: s.query(Model).filter(Model.id == bindparam("id"))
+        )
 
         if include_frobnizzle:
             parameterized_query += lambda q: q.filter(Model.frobnizzle == True)
@@ -332,40 +340,127 @@ to arrive at the current "baked" approach.   Starting from the
 management,  removal of all redundant Python execution, and queries built up
 with conditionals needed to be addressed, leading to the final approach.
 
+Special Query Techniques
+------------------------
+
+This section will describe some techniques for specific query situations.
+
+.. _baked_in:
+
+Using IN expressions
+^^^^^^^^^^^^^^^^^^^^
+
+The :meth:`.ColumnOperators.in_` method in SQLAlchemy historically renders
+a variable set of bound parameters based on the list of items that's passed
+to the method.   This doesn't work for baked queries as the length of that
+list can change on different calls.  To solve this problem, the
+:paramref:`.bindparam.expanding` parameter supports a late-rendered IN
+expression that is safe to be cached inside of baked query.  The actual list
+of elements is rendered at statement execution time, rather than at
+statement compilation time::
+
+    bakery = baked.bakery()
+
+    baked_query = bakery(lambda session: session.query(User))
+    baked_query += lambda q: q.filter(
+        User.name.in_(bindparam("username", expanding=True))
+    )
+
+    result = baked_query.with_session(session).params(username=["ed", "fred"]).all()
+
+.. seealso::
+
+  :paramref:`.bindparam.expanding`
+
+  :meth:`.ColumnOperators.in_`
+
+Using Subqueries
+^^^^^^^^^^^^^^^^
+
+When using :class:`_query.Query` objects, it is often needed that one :class:`_query.Query`
+object is used to generate a subquery within another.   In the case where the
+:class:`_query.Query` is currently in baked form, an interim method may be used to
+retrieve the :class:`_query.Query` object, using the :meth:`.BakedQuery.to_query`
+method.  This method is passed the :class:`.Session` or :class:`_query.Query` that is
+the argument to the lambda callable used to generate a particular step
+of the baked query::
+
+    bakery = baked.bakery()
+
+    # a baked query that will end up being used as a subquery
+    my_subq = bakery(lambda s: s.query(User.id))
+    my_subq += lambda q: q.filter(User.id == Address.user_id)
+
+    # select a correlated subquery in the top columns list,
+    # we have the "session" argument, pass that
+    my_q = bakery(lambda s: s.query(Address.id, my_subq.to_query(s).as_scalar()))
+
+    # use a correlated subquery in some of the criteria, we have
+    # the "query" argument, pass that.
+    my_q += lambda q: q.filter(my_subq.to_query(q).exists())
+
+.. versionadded:: 1.3
+
+.. _baked_with_before_compile:
+
+Using the before_compile event
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+As of SQLAlchemy 1.3.11, the use of the :meth:`.QueryEvents.before_compile`
+event against a particular :class:`_query.Query` will disallow the baked query
+system from caching the query, if the event hook returns a new :class:`_query.Query`
+object that is different from the one passed in.  This is so that the
+:meth:`.QueryEvents.before_compile` hook may be invoked against a particular
+:class:`_query.Query` every time it is used, to accommodate for hooks that
+alter the query differently each time.    To allow a
+:meth:`.QueryEvents.before_compile` to alter a :meth:`_query.Query` object, but
+still to allow the result to be cached, the event can be registered
+passing the ``bake_ok=True`` flag::
+
+    @event.listens_for(Query, "before_compile", retval=True, bake_ok=True)
+    def my_event(query):
+        for desc in query.column_descriptions:
+            if desc["type"] is User:
+                entity = desc["entity"]
+                query = query.filter(entity.deleted == False)
+        return query
+
+The above strategy is appropriate for an event that will modify a
+given :class:`_query.Query` in exactly the same way every time, not dependent
+on specific parameters or external state that changes.
+
+.. versionadded:: 1.3.11  - added the "bake_ok" flag to the
+   :meth:`.QueryEvents.before_compile` event and disallowed caching via
+   the "baked" extension from occurring for event handlers that
+   return  a new :class:`_query.Query` object if this flag is not set.
+
+
+Disabling Baked Queries Session-wide
+------------------------------------
+
+The flag :paramref:`.Session.enable_baked_queries` may be set to False,
+causing all baked queries to not use the cache when used against that
+:class:`.Session`::
+
+    session = Session(engine, enable_baked_queries=False)
+
+Like all session flags, it is also accepted by factory objects like
+:class:`.sessionmaker` and methods like :meth:`.sessionmaker.configure`.
+
+The immediate rationale for this flag is so that an application
+which is seeing issues potentially due to cache key conflicts from user-defined
+baked queries or other baked query issues can turn the behavior off, in
+order to identify or eliminate baked queries as the cause of an issue.
+
+.. versionadded:: 1.2
+
 Lazy Loading Integration
 ------------------------
 
-The baked query can be integrated with SQLAlchemy's lazy loader feature
-transparently.   A future release of SQLAlchemy may enable this by default,
-as its use within lazy loading is completely transparent.    For now,
-to enable baked lazyloading for all lazyloaders systemwide, call upon
-the :func:`.bake_lazy_loaders` function.   This will impact all relationships
-that use the ``lazy='select'`` strategy as well as all use of the :func:`.lazyload`
-per-query strategy.
+.. versionchanged:: 1.4 As of SQLAlchemy 1.4, the "baked query" system is no
+   longer part of the relationship loading system.
+   The :ref:`native caching <sql_caching>` system is used instead.
 
-"Baked" lazy loading may be enabled on a per-:func:`.relationship` basis
-using the ``baked_select`` loader strategy::
-
-    class MyClass(Base):
-        # ...
-
-        widgets = relationship("Widget", lazy="baked_select")
-
-The ``baked_select`` strategy is available once any part of the application
-has imported the ``sqlalchemy.ext.baked`` module.   The "bakery" used by
-this feature is local to the mapper for ``MyClass``.
-
-For per-query use, the :func:`.baked_lazyload` strategy may be used,
-which works like any other loader option.
-
-Opting out with the bake_queries flag
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-The :func:`.relationship` construct includes a flag
-:paramref:`.relationship.bake_queries` which when set to False will cause
-that relationship to opt out of the baked query system, when the
-application-wide :func:`.bake_lazy_loaders` function has been called to enable
-baked query loaders by default.
 
 API Documentation
 -----------------
@@ -375,13 +470,10 @@ API Documentation
 .. autoclass:: BakedQuery
     :members:
 
-.. autoclass:: Result
+.. autoclass:: Bakery
     :members:
 
-.. autofunction:: bake_lazy_loaders
+.. autoclass:: Result
+    :members:
+    :noindex:
 
-.. autofunction:: unbake_lazy_loaders
-
-.. autofunction:: baked_lazyload
-
-.. autofunction:: baked_lazyload_all
