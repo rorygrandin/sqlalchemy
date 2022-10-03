@@ -43,6 +43,8 @@ from .. import exc
 from .. import inspection
 from .. import util
 
+import logging
+import warnings
 
 def collate(expression, collation):
     """Return the clause ``expression COLLATE collation``.
